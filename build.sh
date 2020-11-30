@@ -10,7 +10,7 @@ nocol='\033[0m'
 
 # Kernel details
 KERNEL_NAME="Ayase"
-VERSION="HILLS"
+VERSION="HILL"
 DATE=$(date +"%d-%m-%Y-%I-%M")
 DEVICE="DDV"
 FINAL_ZIP=$KERNEL_NAME-$VERSION-$DATE.zip
@@ -50,6 +50,12 @@ function make_kernel() {
   fi
 }
 
+# Config kernel
+function config_kernel() {
+  #make menuconfig CC=clang O=output/
+  make menuconfig O=output/
+}
+
 # Making zip
 function make_zip() {
 cp $KERNEL_IMG $ANYKERNEL_DIR
@@ -62,12 +68,13 @@ mv $ANYKERNEL_DIR/UPDATE-AnyKernel3.zip $UPLOAD_DIR/$FINAL_ZIP
 # Options
 function options() {
 echo -e "$cyan***********************************************"
-  echo "          Compiling Ayase kernel                  "
+  echo "          Compiling $KERNEL_NAME kernel                  "
   echo -e "***********************************************$nocol"
   echo -e " "
   echo -e " Select one of the following types of build : "
   echo -e " 1.Dirty"
   echo -e " 2.Clean"
+  echo -e " 3.Menuconfig"
   echo -n " Your choice : ? "
   read ch
 
@@ -90,6 +97,10 @@ case $ch in
      make clean O=output/
      make mrproper O=output/
      make_kernel ;;
+  3) echo -e "$cyan***********************************************"
+     echo -e "          	Menuconfig     "
+     echo -e "***********************************************$nocol"
+     config_kernel ;;
 esac
 
 if [ "$ziporkernel" = "1" ]; then
