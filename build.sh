@@ -11,7 +11,7 @@ nocol='\033[0m'
 # Kernel details
 KERNEL_NAME="Ayase"
 VERSION="HILL"
-DATE=$(date +"%d-%m-%Y-%I-%M")
+DATE=$(date +"%Y%m%d%H%M")
 DEVICE="DDV"
 FINAL_ZIP=$KERNEL_NAME-$VERSION-$DATE.zip
 defconfig=ayase_defconfig
@@ -54,6 +54,16 @@ function make_kernel() {
 function config_kernel() {
   #make menuconfig CC=clang O=output/
   make menuconfig O=output/
+  echo -e "$cyan***********************************************"
+  echo -e "             Building kernel          "
+  echo -e "***********************************************$nocol"
+  #make -j$(nproc --all) CC=clang O=output/
+  make -j$(nproc --all) O=output/
+  if ! [ -a $KERNEL_IMG ];
+  then
+    echo -e "$red Kernel Compilation failed! Fix the errors! $nocol"
+    exit 1
+  fi
 }
 
 # Making zip
@@ -61,7 +71,7 @@ function make_zip() {
 cp $KERNEL_IMG $ANYKERNEL_DIR
 mkdir -p $UPLOAD_DIR
 cd $ANYKERNEL_DIR
-zip -r9 UPDATE-AnyKernel3.zip * -x README UPDATE-AnyKernel3.zip
+zip -r9 UPDATE-AnyKernel3.zip * -x .git README.md *placeholder UPDATE-AnyKernel3.zip
 mv $ANYKERNEL_DIR/UPDATE-AnyKernel3.zip $UPLOAD_DIR/$FINAL_ZIP
 }
 
