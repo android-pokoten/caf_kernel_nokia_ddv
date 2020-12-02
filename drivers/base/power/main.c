@@ -1723,3 +1723,30 @@ void dpm_for_each_dev(void *data, void (*fn)(struct device *, void *))
 	device_pm_unlock();
 }
 EXPORT_SYMBOL_GPL(dpm_for_each_dev);
+
+static bool pm_ops_is_empty(const struct dev_pm_ops *ops)
+{
+	if (!ops)
+			return true;
+
+	return !ops->prepare &&
+			!ops->suspend &&
+			!ops->suspend_late &&
+			!ops->suspend_noirq &&
+			!ops->resume_noirq &&
+			!ops->resume_early &&
+			!ops->resume &&
+			!ops->complete;
+}
+
+void device_pm_check_callbacks(struct device *dev)
+{
+	spin_lock_irq(&dev->power.lock);
+	dev->power.no_pm_callbacks =
+			(!dev->bus || pm_ops_is_empty(dev->bus->pm)) &&
+			(!dev->class || pm_ops_is_empty(dev->class->pm)) &&
+			(!dev->type || pm_ops_is_empty(dev->type->pm)) &&
+			(!dev->pm_domain || pm_ops_is_empty(&dev->pm_domain->ops)) &&
+			(!dev->driver || pm_ops_is_empty(dev->driver->pm));
+	spin_unlock_irq(&dev->power.lock);
+}
