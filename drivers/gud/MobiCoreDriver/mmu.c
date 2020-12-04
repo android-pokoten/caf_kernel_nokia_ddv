@@ -70,9 +70,9 @@
 #if KERNEL_VERSION(4, 6, 0) > LINUX_VERSION_CODE
 static inline long gup_local(struct mm_struct *mm, uintptr_t start,
 			     unsigned long nr_pages, int write,
-			     struct page **pages)
+			     struct vm_area_struct **pages)
 {
-	return get_user_pages(NULL, mm, start, nr_pages, write, 0, pages, NULL);
+	return get_user_pages(NULL, mm, start, nr_pages, 0, pages, NULL);
 }
 #elif KERNEL_VERSION(4, 9, 0) > LINUX_VERSION_CODE
 static inline long gup_local(struct mm_struct *mm, uintptr_t start,
