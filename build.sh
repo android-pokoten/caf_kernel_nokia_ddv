@@ -24,7 +24,7 @@ KERNEL_IMG=$KERNEL_DIR/output/arch/arm64/boot/Image.gz-dtb
 UPLOAD_DIR=$BASE_DIR/$DEVICE
 
 # Export
-export PATH="$BASE_DIR/toolchain/aarch64/aarch64-linux-android-4.9/bin:$PATH"
+export PATH="$BASE_DIR/toolchain/proton-clang-master/bin/:$BASE_DIR/toolchain/aarch64/aarch64-linux-android-4.9/bin:$PATH"
 export ARCH=arm64
 export CROSS_COMPILE=aarch64-linux-android-
 export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
