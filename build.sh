@@ -26,7 +26,7 @@ UPLOAD_DIR=$BASE_DIR/$DEVICE
 WLAN_MOD=$KERNEL_DIR/output/drivers/staging/qcacld-3.0/wlan.ko
 
 # Export
-export PATH="$BASE_DIR/toolchain/aarch64/aarch64-linux-android-4.9/bin:$PATH"
+export PATH="$BASE_DIR/toolchain/proton-clang-master/bin/:$BASE_DIR/toolchain/aarch64/aarch64-linux-android-4.9/bin:$PATH"
 export ARCH=arm64
 export CROSS_COMPILE=aarch64-linux-android-
 export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
