@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,9 +24,14 @@
 #include <linux/interrupt.h>
 
 #define ATH_DBG_DEFAULT   0
+#define DRAM_SIZE               0x000a8000
 #include "hif.h"
 #include "cepci.h"
 #include "ce_main.h"
+
+#ifdef QCA_HIF_HIA_EXTND
+extern int32_t frac, intval, ar900b_20_targ_clk, qca9888_20_targ_clk;
+#endif
 
 /* An address (e.g. of a buffer) in Copy Engine space. */
 
@@ -79,6 +84,8 @@ struct hif_pci_pm_stats {
 	u32 allow_suspend_timeout;
 	u32 runtime_get_err;
 	void *last_resume_caller;
+	void *last_busy_marker;
+	qdf_time_t last_busy_timestamp;
 	unsigned long suspend_jiffies;
 };
 #endif
@@ -107,15 +114,17 @@ struct hif_pci_softc {
 	int num_msi_intrs;      /* number of MSI interrupts granted */
 	/* 0 --> using legacy PCI line interrupts */
 	struct tasklet_struct intr_tq;  /* tasklet */
-
 	struct hif_msi_info msi_info;
+	int ce_msi_irq_num[CE_COUNT_MAX];
 	int irq;
 	int irq_event;
 	int cacheline_sz;
 	u16 devid;
-	qdf_dma_addr_t soc_pcie_bar0;
 	struct hif_tasklet_entry tasklet_entries[HIF_MAX_TASKLET_NUM];
 	bool pci_enabled;
+	bool use_register_windowing;
+	uint32_t register_window;
+	qdf_spinlock_t register_access_lock;
 	qdf_spinlock_t irq_lock;
 	qdf_work_t reschedule_tasklet_work;
 	uint32_t lcr_val;
@@ -125,7 +134,7 @@ struct hif_pci_softc {
 	struct hif_pci_pm_stats pm_stats;
 	struct work_struct pm_work;
 	spinlock_t runtime_lock;
-	struct timer_list runtime_timer;
+	qdf_timer_t runtime_timer;
 	struct list_head prevent_suspend_list;
 	unsigned long runtime_timer_expires;
 	qdf_runtime_lock_t prevent_linkdown_lock;
@@ -133,13 +142,18 @@ struct hif_pci_softc {
 	struct dentry *pm_dentry;
 #endif
 #endif
+	int (*hif_enable_pci)(struct hif_pci_softc *sc, struct pci_dev *pdev,
+			      const struct pci_device_id *id);
+	void (*hif_pci_deinit)(struct hif_pci_softc *sc);
+	void (*hif_pci_get_soc_info)(struct hif_pci_softc *sc,
+				     struct device *dev);
 };
 
 bool hif_pci_targ_is_present(struct hif_softc *scn, void *__iomem *mem);
 int hif_configure_irq(struct hif_softc *sc);
 void hif_pci_cancel_deferred_target_sleep(struct hif_softc *scn);
 void wlan_tasklet(unsigned long data);
-irqreturn_t hif_pci_interrupt_handler(int irq, void *arg);
+irqreturn_t hif_pci_legacy_ce_interrupt_handler(int irq, void *arg);
 int hif_pci_addr_in_boundary(struct hif_softc *scn, uint32_t offset);
 
 /*
@@ -160,7 +174,7 @@ int hif_pci_addr_in_boundary(struct hif_softc *scn, uint32_t offset);
 /*
  * There may be some pending tx frames during platform suspend.
  * Suspend operation should be delayed until those tx frames are
- * transfered from the host to target. This macro specifies how
+ * transferred from the host to target. This macro specifies how
  * long suspend thread has to sleep before checking pending tx
  * frame count.
  */
@@ -184,6 +198,7 @@ static inline int hif_pm_request_resume(struct device *dev)
 {
 	return pm_request_resume(dev);
 }
+
 static inline int __hif_pm_runtime_get(struct device *dev)
 {
 	return pm_runtime_get(dev);
@@ -194,16 +209,9 @@ static inline int hif_pm_runtime_put_auto(struct device *dev)
 	return pm_runtime_put_autosuspend(dev);
 }
 
-static inline void hif_pm_runtime_mark_last_busy(struct device *dev)
-{
-	pm_runtime_mark_last_busy(dev);
-}
-
 static inline int hif_pm_runtime_resume(struct device *dev)
 {
 	return pm_runtime_resume(dev);
 }
-#else
-static inline void hif_pm_runtime_mark_last_busy(struct device *dev) { }
 #endif /* FEATURE_RUNTIME_PM */
 #endif /* __ATH_PCI_H__ */
