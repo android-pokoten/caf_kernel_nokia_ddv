@@ -117,4 +117,4 @@ all.config
 android/configs/android-*.cfg
 
 # working dir
-/out/
+/output/
