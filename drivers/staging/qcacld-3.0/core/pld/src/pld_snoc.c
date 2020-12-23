@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -49,7 +49,7 @@ static int pld_snoc_probe(struct device *dev)
 		goto out;
 	}
 
-	ret = pld_add_dev(pld_context, dev, NULL, PLD_BUS_TYPE_SNOC);
+	ret = pld_add_dev(pld_context, dev, PLD_BUS_TYPE_SNOC);
 	if (ret)
 		goto out;
 
@@ -238,28 +238,27 @@ static int pld_snoc_uevent(struct device *dev,
 		return -EINVAL;
 
 	if (!pld_context->ops->uevent)
-		goto out;
+		return 0;
 
 	if (!uevent)
 		return -EINVAL;
 
 	switch (uevent->uevent) {
 	case ICNSS_UEVENT_FW_CRASHED:
-		data.uevent = PLD_FW_CRASHED;
+		data.uevent = PLD_RECOVERY;
 		break;
 	case ICNSS_UEVENT_FW_DOWN:
-		if (!uevent->data)
+		if (uevent->data == NULL)
 			return -EINVAL;
 		uevent_data = (struct icnss_uevent_fw_down_data *)uevent->data;
 		data.uevent = PLD_FW_DOWN;
 		data.fw_down.crashed = uevent_data->crashed;
 		break;
 	default:
-		goto out;
+		return 0;
 	}
 
 	pld_context->ops->uevent(dev, &data);
-out:
 	return 0;
 }
 
@@ -381,26 +380,17 @@ int pld_snoc_wlan_disable(struct device *dev, enum pld_driver_mode mode)
  */
 int pld_snoc_get_soc_info(struct device *dev, struct pld_soc_info *info)
 {
-	int errno;
-	struct icnss_soc_info icnss_info = {0};
+	int ret = 0;
+	struct icnss_soc_info icnss_info;
 
-	if (!info || !dev)
+	if (info == NULL || !dev)
 		return -ENODEV;
 
-	errno = icnss_get_soc_info(dev, &icnss_info);
-	if (errno)
-		return errno;
+	ret = icnss_get_soc_info(dev, &icnss_info);
+	if (0 != ret)
+		return ret;
 
-	info->v_addr = icnss_info.v_addr;
-	info->p_addr = icnss_info.p_addr;
-	info->chip_id = icnss_info.chip_id;
-	info->chip_family = icnss_info.chip_family;
-	info->board_id = icnss_info.board_id;
-	info->soc_id = icnss_info.soc_id;
-	info->fw_version = icnss_info.fw_version;
-	strlcpy(info->fw_build_timestamp, icnss_info.fw_build_timestamp,
-		sizeof(info->fw_build_timestamp));
-
+	memcpy(info, &icnss_info, sizeof(*info));
 	return 0;
 }
 #endif

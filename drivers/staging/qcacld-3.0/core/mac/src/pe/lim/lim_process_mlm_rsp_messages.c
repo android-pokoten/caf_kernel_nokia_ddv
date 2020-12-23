@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -18,6 +18,7 @@
 
 #include "wni_api.h"
 #include "wni_cfg.h"
+#include "cfg_api.h"
 #include "sir_api.h"
 #include "sch_api.h"
 #include "utils_api.h"
@@ -38,23 +39,25 @@
 #include "wma_types.h"
 #include "cds_utils.h"
 #include "lim_types.h"
-#include "wlan_policy_mgr_api.h"
+#include "cds_concurrency.h"
 #include "nan_datapath.h"
-#include "wlan_reg_services_api.h"
 
 #define MAX_SUPPORTED_PEERS_WEP 16
 
-void lim_process_mlm_join_cnf(struct mac_context *, uint32_t *);
-void lim_process_mlm_auth_cnf(struct mac_context *, uint32_t *);
-void lim_process_mlm_assoc_ind(struct mac_context *, uint32_t *);
-void lim_process_mlm_assoc_cnf(struct mac_context *, uint32_t *);
-void lim_process_mlm_set_keys_cnf(struct mac_context *, uint32_t *);
-void lim_process_mlm_disassoc_ind(struct mac_context *, uint32_t *);
-void lim_process_mlm_disassoc_cnf(struct mac_context *, uint32_t *);
-static void lim_process_mlm_deauth_ind(struct mac_context *, tLimMlmDeauthInd *);
-void lim_process_mlm_deauth_cnf(struct mac_context *, uint32_t *);
-void lim_process_mlm_purge_sta_ind(struct mac_context *, uint32_t *);
-
+void lim_process_mlm_join_cnf(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_auth_cnf(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_start_cnf(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_assoc_ind(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_assoc_cnf(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_reassoc_ind(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_set_keys_cnf(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_disassoc_ind(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_disassoc_cnf(tpAniSirGlobal, uint32_t *);
+static void lim_process_mlm_deauth_ind(tpAniSirGlobal, tLimMlmDeauthInd *);
+void lim_process_mlm_deauth_cnf(tpAniSirGlobal, uint32_t *);
+void lim_process_mlm_purge_sta_ind(tpAniSirGlobal, uint32_t *);
+void lim_get_session_info(tpAniSirGlobal pMac, uint8_t *, uint8_t *,
+				uint16_t *);
 /**
  * lim_process_mlm_rsp_messages()
  *
@@ -68,58 +71,58 @@ void lim_process_mlm_purge_sta_ind(struct mac_context *, uint32_t *);
  *
  ***NOTE:
  *
- * @param mac       Pointer to Global MAC structure
+ * @param pMac       Pointer to Global MAC structure
  * @param  msgType   Indicates the MLM message type
- * @param  *msg_buf  A pointer to the MLM message buffer
+ * @param  *pMsgBuf  A pointer to the MLM message buffer
  *
  * @return None
  */
 void
-lim_process_mlm_rsp_messages(struct mac_context *mac, uint32_t msgType,
-			     uint32_t *msg_buf)
+lim_process_mlm_rsp_messages(tpAniSirGlobal pMac, uint32_t msgType,
+			     uint32_t *pMsgBuf)
 {
 
-	if (!msg_buf) {
+	if (pMsgBuf == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
-	MTRACE(mac_trace(mac, TRACE_CODE_TX_LIM_MSG, 0, msgType));
+	MTRACE(mac_trace(pMac, TRACE_CODE_TX_LIM_MSG, 0, msgType));
 	switch (msgType) {
 	case LIM_MLM_AUTH_CNF:
-		lim_process_mlm_auth_cnf(mac, msg_buf);
+		lim_process_mlm_auth_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_ASSOC_CNF:
-		lim_process_mlm_assoc_cnf(mac, msg_buf);
+		lim_process_mlm_assoc_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_START_CNF:
-		lim_process_mlm_start_cnf(mac, msg_buf);
+		lim_process_mlm_start_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_JOIN_CNF:
-		lim_process_mlm_join_cnf(mac, msg_buf);
+		lim_process_mlm_join_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_ASSOC_IND:
-		lim_process_mlm_assoc_ind(mac, msg_buf);
+		lim_process_mlm_assoc_ind(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_REASSOC_CNF:
-		lim_process_mlm_reassoc_cnf(mac, msg_buf);
+		lim_process_mlm_reassoc_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_DISASSOC_CNF:
-		lim_process_mlm_disassoc_cnf(mac, msg_buf);
+		lim_process_mlm_disassoc_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_DISASSOC_IND:
-		lim_process_mlm_disassoc_ind(mac, msg_buf);
+		lim_process_mlm_disassoc_ind(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_PURGE_STA_IND:
-		lim_process_mlm_purge_sta_ind(mac, msg_buf);
+		lim_process_mlm_purge_sta_ind(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_DEAUTH_CNF:
-		lim_process_mlm_deauth_cnf(mac, msg_buf);
+		lim_process_mlm_deauth_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_DEAUTH_IND:
-		lim_process_mlm_deauth_ind(mac, (tLimMlmDeauthInd *)msg_buf);
+		lim_process_mlm_deauth_ind(pMac, (tLimMlmDeauthInd *)pMsgBuf);
 		break;
 	case LIM_MLM_SETKEYS_CNF:
-		lim_process_mlm_set_keys_cnf(mac, msg_buf);
+		lim_process_mlm_set_keys_cnf(pMac, pMsgBuf);
 		break;
 	case LIM_MLM_TSPEC_CNF:
 		break;
@@ -142,106 +145,107 @@ lim_process_mlm_rsp_messages(struct mac_context *mac, uint32_t msgType,
  *
  ***NOTE:
  *
- * @param mac       Pointer to Global MAC structure
- * @param msg_buf    A pointer to the MLM message buffer
+ * @param pMac       Pointer to Global MAC structure
+ * @param pMsgBuf    A pointer to the MLM message buffer
  *
  * @return None
  */
-void lim_process_mlm_start_cnf(struct mac_context *mac, uint32_t *msg_buf)
+void lim_process_mlm_start_cnf(tpAniSirGlobal pMac, uint32_t *pMsgBuf)
 {
-	struct pe_session *pe_session = NULL;
+	tpPESession psessionEntry = NULL;
 	tLimMlmStartCnf *pLimMlmStartCnf;
 	uint8_t smesessionId;
+	uint16_t smetransactionId;
 	uint8_t channelId;
 	uint8_t send_bcon_ind = false;
 
-	if (!msg_buf) {
+	if (pMsgBuf == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
-	pLimMlmStartCnf = (tLimMlmStartCnf *)msg_buf;
-	pe_session = pe_find_session_by_session_id(mac,
+	pLimMlmStartCnf = (tLimMlmStartCnf *) pMsgBuf;
+	psessionEntry = pe_find_session_by_session_id(pMac,
 				pLimMlmStartCnf->sessionId);
-	if (!pe_session) {
+	if (psessionEntry == NULL) {
 		pe_err("Session does Not exist with given sessionId");
 		return;
 	}
-	smesessionId = pe_session->smeSessionId;
+	smesessionId = psessionEntry->smeSessionId;
+	smetransactionId = psessionEntry->transactionId;
 
-	if (pe_session->limSmeState != eLIM_SME_WT_START_BSS_STATE) {
+	if (psessionEntry->limSmeState != eLIM_SME_WT_START_BSS_STATE) {
 		/*
 		 * Should not have received Start confirm from MLM
 		 * in other states. Log error.
 		 */
 		pe_err("received unexpected MLM_START_CNF in state %X",
-				pe_session->limSmeState);
+				psessionEntry->limSmeState);
 		return;
 	}
-	if (((tLimMlmStartCnf *)msg_buf)->resultCode == eSIR_SME_SUCCESS) {
+	if (((tLimMlmStartCnf *) pMsgBuf)->resultCode == eSIR_SME_SUCCESS) {
 
 		/*
 		 * Update global SME state so that Beacon Generation
 		 * module starts writing Beacon frames into TFP's
 		 * Beacon file register.
 		 */
-		pe_session->limSmeState = eLIM_SME_NORMAL_STATE;
+		psessionEntry->limSmeState = eLIM_SME_NORMAL_STATE;
 		MTRACE(mac_trace
-			       (mac, TRACE_CODE_SME_STATE, pe_session->peSessionId,
-			       pe_session->limSmeState));
-		if (pe_session->bssType == eSIR_INFRA_AP_MODE)
+			       (pMac, TRACE_CODE_SME_STATE, psessionEntry->peSessionId,
+			       psessionEntry->limSmeState));
+		if (psessionEntry->bssType == eSIR_INFRA_AP_MODE)
 			pe_debug("*** Started BSS in INFRA AP SIDE***");
-		else if (pe_session->bssType == eSIR_NDI_MODE)
+		else if (psessionEntry->bssType == eSIR_NDI_MODE)
 			pe_debug("*** Started BSS in NDI mode ***");
 		else
 			pe_debug("*** Started BSS ***");
 	} else {
 		/* Start BSS is a failure */
-		pe_delete_session(mac, pe_session);
-		pe_session = NULL;
+		pe_delete_session(pMac, psessionEntry);
+		psessionEntry = NULL;
 		pe_err("Start BSS Failed");
 	}
 	/* Send response to Host */
-	lim_send_sme_start_bss_rsp(mac, eWNI_SME_START_BSS_RSP,
-				((tLimMlmStartCnf *)msg_buf)->resultCode,
-				pe_session, smesessionId);
-	if (pe_session &&
-	    (((tLimMlmStartCnf *)msg_buf)->resultCode == eSIR_SME_SUCCESS)) {
-		channelId = pe_session->pLimStartBssReq->channelId;
-		lim_ndi_mlme_vdev_up_transition(pe_session);
+	lim_send_sme_start_bss_rsp(pMac, eWNI_SME_START_BSS_RSP,
+				((tLimMlmStartCnf *)pMsgBuf)->resultCode,
+				psessionEntry, smesessionId, smetransactionId);
+	if ((psessionEntry != NULL) &&
+		(((tLimMlmStartCnf *) pMsgBuf)->resultCode ==
+						eSIR_SME_SUCCESS)) {
+		channelId = psessionEntry->pLimStartBssReq->channelId;
 
 		/* We should start beacon transmission only if the channel
 		 * on which we are operating is non-DFS until the channel
 		 * availability check is done. The PE will receive an explicit
 		 * request from upper layers to start the beacon transmission
 		 */
-		if (!(LIM_IS_IBSS_ROLE(pe_session) ||
-			(LIM_IS_AP_ROLE(pe_session))))
+
+		if (!(LIM_IS_IBSS_ROLE(psessionEntry) ||
+			(LIM_IS_AP_ROLE(psessionEntry))))
 				return;
-		if (pe_session->ch_width == CH_WIDTH_160MHZ) {
+		if (psessionEntry->ch_width == CH_WIDTH_160MHZ) {
 			send_bcon_ind = false;
-		} else if (pe_session->ch_width == CH_WIDTH_80P80MHZ) {
-			if ((wlan_reg_get_channel_state(mac->pdev, channelId)
-						!= CHANNEL_STATE_DFS) &&
-			    (wlan_reg_get_channel_state(mac->pdev,
-					pe_session->ch_center_freq_seg1 -
+		} else if (psessionEntry->ch_width == CH_WIDTH_80P80MHZ) {
+			if ((cds_get_channel_state(channelId) !=
+						CHANNEL_STATE_DFS) &&
+			    (cds_get_channel_state(psessionEntry->
+					ch_center_freq_seg1 -
 					SIR_80MHZ_START_CENTER_CH_DIFF) !=
 						CHANNEL_STATE_DFS))
 				send_bcon_ind = true;
 		} else {
-			if (wlan_reg_get_channel_state(mac->pdev, channelId)
-					!= CHANNEL_STATE_DFS)
+			if (cds_get_channel_state(channelId) !=
+							CHANNEL_STATE_DFS)
 				send_bcon_ind = true;
 		}
 		if (send_bcon_ind) {
 			/* Configure beacon and send beacons to HAL */
 			QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
 					FL("Start Beacon with ssid %s Ch %d"),
-					pe_session->ssId.ssId,
-					pe_session->currentOperChannel);
-			lim_send_beacon(mac, pe_session);
-			lim_enable_obss_detection_config(mac, pe_session);
-			lim_send_obss_color_collision_cfg(mac, pe_session,
-					OBSS_COLOR_COLLISION_DETECTION);
+					psessionEntry->ssId.ssId,
+					psessionEntry->currentOperChannel);
+			lim_send_beacon_ind(pMac, psessionEntry,
+					    REASON_DEFAULT);
 		}
 	}
 }
@@ -258,17 +262,17 @@ void lim_process_mlm_start_cnf(struct mac_context *mac, uint32_t *msg_buf)
  *
  * Return: None
  */
-void lim_process_mlm_join_cnf(struct mac_context *mac_ctx,
+void lim_process_mlm_join_cnf(tpAniSirGlobal mac_ctx,
 	uint32_t *msg)
 {
 	tSirResultCodes result_code;
 	tLimMlmJoinCnf *join_cnf;
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 
 	join_cnf = (tLimMlmJoinCnf *) msg;
 	session_entry = pe_find_session_by_session_id(mac_ctx,
 		join_cnf->sessionId);
-	if (!session_entry) {
+	if (session_entry == NULL) {
 		pe_err("SessionId:%d does not exist", join_cnf->sessionId);
 		return;
 	}
@@ -286,7 +290,7 @@ void lim_process_mlm_join_cnf(struct mac_context *mac_ctx,
 			join_cnf->sessionId);
 		/* Setup hardware upfront */
 		if (lim_sta_send_add_bss_pre_assoc(mac_ctx, false,
-			session_entry) == QDF_STATUS_SUCCESS)
+			session_entry) == eSIR_SUCCESS)
 			return;
 		else
 			result_code = eSIR_SME_REFUSED;
@@ -309,7 +313,7 @@ void lim_process_mlm_join_cnf(struct mac_context *mac_ctx,
  * session_entry:  Pointer to session etnry
  *
  * This function is sends ASSOC request MLM message to MLM State machine.
- * ASSOC request packet would be by picking parameters from pe_session
+ * ASSOC request packet would be by picking parameters from psessionEntry
  * automatically based on the current state of MLM state machine.
  * ASSUMPTIONS:
  * this function is called in middle of connection state machine and is
@@ -319,8 +323,8 @@ void lim_process_mlm_join_cnf(struct mac_context *mac_ctx,
  * Return: None
  */
 
-static void lim_send_mlm_assoc_req(struct mac_context *mac_ctx,
-	struct pe_session *session_entry)
+static void lim_send_mlm_assoc_req(tpAniSirGlobal mac_ctx,
+	tpPESession session_entry)
 {
 	tLimMlmAssocReq *assoc_req;
 	uint32_t val;
@@ -332,22 +336,28 @@ static void lim_send_mlm_assoc_req(struct mac_context *mac_ctx,
 	pe_debug("SessionId: %d Authenticated with BSS",
 		session_entry->peSessionId);
 
-	if (!session_entry->pLimJoinReq) {
+	if (NULL == session_entry->pLimJoinReq) {
 		pe_err("Join Request is NULL");
 		/* No need to Assert. JOIN timeout will handle this error */
 		return;
 	}
 
 	assoc_req = qdf_mem_malloc(sizeof(tLimMlmAssocReq));
-	if (!assoc_req) {
+	if (NULL == assoc_req) {
 		pe_err("call to AllocateMemory failed for mlmAssocReq");
 		return;
 	}
 	val = sizeof(tSirMacAddr);
 	sir_copy_mac_addr(assoc_req->peerMacAddr, session_entry->bssId);
+	if (wlan_cfg_get_int(mac_ctx,  WNI_CFG_ASSOCIATION_FAILURE_TIMEOUT,
+		(uint32_t *) &assoc_req->assocFailureTimeout)
+		!= eSIR_SUCCESS) {
+		/* Could not get AssocFailureTimeout value from CFG.*/
+		pe_err("could not retrieve AssocFailureTimeout value");
+	}
 
-	if (lim_get_capability_info(mac_ctx, &caps, session_entry)
-			!= QDF_STATUS_SUCCESS)
+	if (cfg_get_capability_info(mac_ctx, &caps, session_entry)
+			!= eSIR_SUCCESS)
 		/* Could not get Capabilities value from CFG.*/
 		pe_err("could not retrieve Capabilities value");
 
@@ -388,17 +398,25 @@ static void lim_send_mlm_assoc_req(struct mac_context *mac_ctx,
 
 	/*
 	 * If telescopic beaconing is enabled, set listen interval to
-	 * CFG_TELE_BCN_MAX_LI
+	 * WNI_CFG_TELE_BCN_MAX_LI
 	 */
-	tele_bcn = mac_ctx->mlme_cfg->sap_cfg.tele_bcn_wakeup_en;
-	if (tele_bcn)
-		val = mac_ctx->mlme_cfg->sap_cfg.tele_bcn_max_li;
-	else
-		val = mac_ctx->mlme_cfg->sap_cfg.listen_interval;
+	if (wlan_cfg_get_int(mac_ctx, WNI_CFG_TELE_BCN_WAKEUP_EN, &tele_bcn)
+		!= eSIR_SUCCESS)
+		pe_err("Couldn't get WNI_CFG_TELE_BCN_WAKEUP_EN");
 
+	val = WNI_CFG_LISTEN_INTERVAL_STADEF;
+	if (tele_bcn) {
+		if (wlan_cfg_get_int(mac_ctx, WNI_CFG_TELE_BCN_MAX_LI, &val) !=
+			eSIR_SUCCESS)
+			pe_err("could not retrieve ListenInterval");
+	} else {
+		if (wlan_cfg_get_int(mac_ctx, WNI_CFG_LISTEN_INTERVAL,
+			 &val) != eSIR_SUCCESS)
+			pe_err("could not retrieve ListenInterval");
+	}
 #ifdef FEATURE_WLAN_DIAG_SUPPORT
 	lim_diag_event_report(mac_ctx, WLAN_PE_DIAG_ASSOC_REQ_EVENT,
-		session_entry, QDF_STATUS_SUCCESS, QDF_STATUS_SUCCESS);
+		session_entry, eSIR_SUCCESS, eSIR_SUCCESS);
 #endif
 	assoc_req->listenInterval = (uint16_t) val;
 	/* Update PE session ID */
@@ -411,6 +429,30 @@ static void lim_send_mlm_assoc_req(struct mac_context *mac_ctx,
 		(uint32_t *) assoc_req);
 }
 
+#ifdef WLAN_FEATURE_11W
+/**
+ * lim_pmf_comeback_timer_callback() -PMF callback handler
+ * @context: Timer context
+ *
+ * This function is called to processes the PMF comeback
+ * callback
+ *
+ * Return: None
+ */
+void lim_pmf_comeback_timer_callback(void *context)
+{
+	tComebackTimerInfo *info = (tComebackTimerInfo *) context;
+	tpAniSirGlobal mac_ctx = info->pMac;
+	tpPESession psessionEntry = &mac_ctx->lim.gpSession[info->sessionID];
+
+	pe_err("comeback later timer expired. sending MLM ASSOC req");
+	/* set MLM state such that ASSOC REQ packet will be sent out */
+	psessionEntry->limPrevMlmState = info->limPrevMlmState;
+	psessionEntry->limMlmState = info->limMlmState;
+	lim_send_mlm_assoc_req(mac_ctx, psessionEntry);
+}
+#endif /* WLAN_FEATURE_11W */
+
 /**
  * lim_process_mlm_auth_cnf()-Process Auth confirmation
  * @mac_ctx:  Pointer to Global MAC structure
@@ -421,21 +463,21 @@ static void lim_send_mlm_assoc_req(struct mac_context *mac_ctx,
  *
  * Return: None
  */
-void lim_process_mlm_auth_cnf(struct mac_context *mac_ctx, uint32_t *msg)
+void lim_process_mlm_auth_cnf(tpAniSirGlobal mac_ctx, uint32_t *msg)
 {
 	tAniAuthType auth_type, auth_mode;
 	tLimMlmAuthReq *auth_req;
 	tLimMlmAuthCnf *auth_cnf;
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 
-	if (!msg) {
+	if (msg == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
 	auth_cnf = (tLimMlmAuthCnf *) msg;
 	session_entry = pe_find_session_by_session_id(mac_ctx,
 			auth_cnf->sessionId);
-	if (!session_entry) {
+	if (session_entry == NULL) {
 		pe_err("SessionId:%d session doesn't exist",
 			auth_cnf->sessionId);
 		return;
@@ -476,10 +518,14 @@ void lim_process_mlm_auth_cnf(struct mac_context *mac_ctx, uint32_t *msg)
 	 * Failure case handle:
 	 * Process AUTH confirm from MLM
 	 */
-	if (session_entry->limSmeState == eLIM_SME_WT_AUTH_STATE)
-		auth_type = mac_ctx->mlme_cfg->wep_params.auth_type;
-	else
+	if (session_entry->limSmeState == eLIM_SME_WT_AUTH_STATE) {
+		if (wlan_cfg_get_int(mac_ctx, WNI_CFG_AUTHENTICATION_TYPE,
+			(uint32_t *) &auth_type) !=  eSIR_SUCCESS) {
+			pe_err("Fail to retrieve AuthType value");
+		}
+	} else {
 		auth_type = mac_ctx->lim.gLimPreAuthType;
+	}
 
 	if ((auth_type == eSIR_AUTO_SWITCH) &&
 		(auth_cnf->authType == eSIR_SHARED_KEY) &&
@@ -494,7 +540,7 @@ void lim_process_mlm_auth_cnf(struct mac_context *mac_ctx, uint32_t *msg)
 		auth_mode = eSIR_OPEN_SYSTEM;
 		/* Trigger MAC based Authentication */
 		auth_req = qdf_mem_malloc(sizeof(tLimMlmAuthReq));
-		if (!auth_req) {
+		if (NULL == auth_req) {
 			pe_err("mlmAuthReq :Memory alloc failed");
 			return;
 		}
@@ -510,6 +556,12 @@ void lim_process_mlm_auth_cnf(struct mac_context *mac_ctx, uint32_t *msg)
 		auth_req->authType = auth_mode;
 		/* Update PE session Id */
 		auth_req->sessionId = auth_cnf->sessionId;
+		if (wlan_cfg_get_int(mac_ctx,
+			WNI_CFG_AUTHENTICATE_FAILURE_TIMEOUT,
+			(uint32_t *) &auth_req->authFailureTimeout)
+			!= eSIR_SUCCESS) {
+			pe_err("Fail:retrieve AuthFailureTimeout");
+		}
 		lim_post_mlm_message(mac_ctx, LIM_MLM_AUTH_REQ,
 			(uint32_t *) auth_req);
 		return;
@@ -560,20 +612,20 @@ void lim_process_mlm_auth_cnf(struct mac_context *mac_ctx, uint32_t *msg)
  *
  * Return: None
  */
-void lim_process_mlm_assoc_cnf(struct mac_context *mac_ctx,
+void lim_process_mlm_assoc_cnf(tpAniSirGlobal mac_ctx,
 	uint32_t *msg)
 {
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 	tLimMlmAssocCnf *assoc_cnf;
 
-	if (!msg) {
+	if (msg == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
 	assoc_cnf = (tLimMlmAssocCnf *) msg;
 	session_entry = pe_find_session_by_session_id(mac_ctx,
 				assoc_cnf->sessionId);
-	if (!session_entry) {
+	if (session_entry == NULL) {
 		pe_err("SessionId:%d Session does not exist",
 			assoc_cnf->sessionId);
 		return;
@@ -649,11 +701,11 @@ void lim_process_mlm_assoc_cnf(struct mac_context *mac_ctx,
  */
 
 static void
-lim_fill_assoc_ind_params(struct mac_context *mac_ctx,
-	tpLimMlmAssocInd assoc_ind, struct assoc_ind *sme_assoc_ind,
-	struct pe_session *session_entry)
+lim_fill_assoc_ind_params(tpAniSirGlobal mac_ctx,
+	tpLimMlmAssocInd assoc_ind, tSirSmeAssocInd *sme_assoc_ind,
+	tpPESession session_entry)
 {
-	sme_assoc_ind->length = sizeof(struct assoc_ind);
+	sme_assoc_ind->length = sizeof(tSirSmeAssocInd);
 	sme_assoc_ind->sessionId = session_entry->smeSessionId;
 
 	/* Required for indicating the frames to upper layer */
@@ -674,8 +726,6 @@ lim_fill_assoc_ind_params(struct mac_context *mac_ctx,
 		sizeof(tSirMacAddr));
 	/* Fill in authType */
 	sme_assoc_ind->authType = assoc_ind->authType;
-	/* Fill in rsn_akm_type */
-	sme_assoc_ind->akm_type = assoc_ind->akm_type;
 	/* Fill in ssId */
 	qdf_mem_copy((uint8_t *) &sme_assoc_ind->ssId,
 		(uint8_t *) &(assoc_ind->ssId), assoc_ind->ssId.length + 1);
@@ -710,9 +760,10 @@ lim_fill_assoc_ind_params(struct mac_context *mac_ctx,
 			assoc_ind->supportedChannels.numChnl);
 	}
 	qdf_mem_copy(&sme_assoc_ind->chan_info, &assoc_ind->chan_info,
-		sizeof(struct oem_channel_info));
+		sizeof(tSirSmeChanInfo));
 	/* Fill in WmmInfo */
 	sme_assoc_ind->wmmEnabledSta = assoc_ind->WmmStaInfoPresent;
+	sme_assoc_ind->ecsa_capable = assoc_ind->ecsa_capable;
 	sme_assoc_ind->ampdu = assoc_ind->ampdu;
 	sme_assoc_ind->sgi_enable = assoc_ind->sgi_enable;
 	sme_assoc_ind->tx_stbc = assoc_ind->tx_stbc;
@@ -724,116 +775,134 @@ lim_fill_assoc_ind_params(struct mac_context *mac_ctx,
 	sme_assoc_ind->max_mcs_idx = assoc_ind->max_mcs_idx;
 	sme_assoc_ind->rx_mcs_map = assoc_ind->rx_mcs_map;
 	sme_assoc_ind->tx_mcs_map = assoc_ind->tx_mcs_map;
-	sme_assoc_ind->ecsa_capable = assoc_ind->ecsa_capable;
 
-	if (assoc_ind->ht_caps.present)
-		sme_assoc_ind->HTCaps = assoc_ind->ht_caps;
-	if (assoc_ind->vht_caps.present)
-		sme_assoc_ind->VHTCaps = assoc_ind->vht_caps;
+	if (assoc_ind->HTCaps.present)
+		sme_assoc_ind->HTCaps = assoc_ind->HTCaps;
+	if (assoc_ind->VHTCaps.present)
+		sme_assoc_ind->VHTCaps = assoc_ind->VHTCaps;
 	sme_assoc_ind->capability_info = assoc_ind->capabilityInfo;
-	sme_assoc_ind->he_caps_present = assoc_ind->he_caps_present;
-	sme_assoc_ind->is_sae_authenticated = assoc_ind->is_sae_authenticated;
+
 }
 
 /**
- * lim_process_mlm_assoc_ind() - This function is called to processes MLM_ASSOC_IND
- * message from MLM State machine.
- * @mac       Pointer to Global MAC structure
- * @msg_buf   A pointer to the MLM message buffer
+ * lim_process_mlm_assoc_ind()
  *
- * Return: None
+ ***FUNCTION:
+ * This function is called to processes MLM_ASSOC_IND
+ * message from MLM State machine.
+ *
+ ***LOGIC:
+ *
+ ***ASSUMPTIONS:
+ *
+ ***NOTE:
+ *
+ * @param pMac       Pointer to Global MAC structure
+ * @param pMsgBuf    A pointer to the MLM message buffer
+ *
+ * @return None
  */
-void lim_process_mlm_assoc_ind(struct mac_context *mac, uint32_t *msg_buf)
+void lim_process_mlm_assoc_ind(tpAniSirGlobal pMac, uint32_t *pMsgBuf)
 {
 	uint32_t len;
-	struct scheduler_msg msg = {0};
-	struct assoc_ind *pSirSmeAssocInd;
-	tpDphHashNode sta = 0;
-	struct pe_session *pe_session;
+	cds_msg_t msg;
+	tSirSmeAssocInd *pSirSmeAssocInd;
+	tpDphHashNode pStaDs = 0;
+	tpPESession psessionEntry;
 
-	if (!msg_buf) {
+	if (pMsgBuf == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
-	pe_session = pe_find_session_by_session_id(mac,
-				((tpLimMlmAssocInd) msg_buf)->sessionId);
-	if (!pe_session) {
+	psessionEntry = pe_find_session_by_session_id(pMac,
+				((tpLimMlmAssocInd) pMsgBuf)->
+				sessionId);
+	if (psessionEntry == NULL) {
 		pe_err("Session Does not exist for given sessionId");
 		return;
 	}
 	/* / Inform Host of STA association */
-	len = sizeof(struct assoc_ind);
+	len = sizeof(tSirSmeAssocInd);
 	pSirSmeAssocInd = qdf_mem_malloc(len);
-	if (!pSirSmeAssocInd) {
+	if (NULL == pSirSmeAssocInd) {
 		pe_err("call to AllocateMemory failed for eWNI_SME_ASSOC_IND");
 		return;
 	}
 
 	pSirSmeAssocInd->messageType = eWNI_SME_ASSOC_IND;
-	lim_fill_assoc_ind_params(mac, (tpLimMlmAssocInd) msg_buf,
-				  pSirSmeAssocInd,
-				  pe_session);
+	lim_fill_assoc_ind_params(pMac, (tpLimMlmAssocInd) pMsgBuf, pSirSmeAssocInd,
+				  psessionEntry);
 	msg.type = eWNI_SME_ASSOC_IND;
 	msg.bodyptr = pSirSmeAssocInd;
 	msg.bodyval = 0;
-	sta = dph_get_hash_entry(mac,
-				    ((tpLimMlmAssocInd) msg_buf)->aid,
-				    &pe_session->dph.dphHashTable);
-	if (!sta) {
+	pStaDs = dph_get_hash_entry(pMac,
+				    ((tpLimMlmAssocInd) pMsgBuf)->aid,
+				    &psessionEntry->dph.dphHashTable);
+	if (!pStaDs) {
 		pe_err("MLM AssocInd: Station context no longer valid (aid %d)",
-			((tpLimMlmAssocInd) msg_buf)->aid);
+			((tpLimMlmAssocInd) pMsgBuf)->aid);
 		qdf_mem_free(pSirSmeAssocInd);
 
 		return;
 	}
-	pSirSmeAssocInd->staId = sta->staIndex;
-	pSirSmeAssocInd->reassocReq = sta->mlmStaContext.subType;
-	pSirSmeAssocInd->timingMeasCap = sta->timingMeasCap;
-	MTRACE(mac_trace(mac, TRACE_CODE_TX_SME_MSG,
-			 pe_session->peSessionId, msg.type));
+	pSirSmeAssocInd->staId = pStaDs->staIndex;
+	pSirSmeAssocInd->reassocReq = pStaDs->mlmStaContext.subType;
+	pSirSmeAssocInd->timingMeasCap = pStaDs->timingMeasCap;
+	MTRACE(mac_trace(pMac, TRACE_CODE_TX_SME_MSG,
+			 psessionEntry->peSessionId, msg.type));
 #ifdef FEATURE_WLAN_DIAG_SUPPORT_LIM    /* FEATURE_WLAN_DIAG_SUPPORT */
-	lim_diag_event_report(mac, WLAN_PE_DIAG_ASSOC_IND_EVENT, pe_session, 0,
+	lim_diag_event_report(pMac, WLAN_PE_DIAG_ASSOC_IND_EVENT, psessionEntry, 0,
 			      0);
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
 	pe_debug("Create CNF_WAIT_TIMER after received LIM_MLM_ASSOC_IND");
 	/*
 	** turn on a timer to detect the loss of ASSOC CNF
 	**/
-	lim_activate_cnf_timer(mac,
-			       (uint16_t) ((tpLimMlmAssocInd)msg_buf)->aid,
-			       pe_session);
+	lim_activate_cnf_timer(pMac,
+			       (uint16_t) ((tpLimMlmAssocInd) pMsgBuf)->aid,
+			       psessionEntry);
 
-	mac->lim.sme_msg_callback(mac, &msg);
+	pMac->lim.sme_msg_callback(pMac, &msg);
 } /*** end lim_process_mlm_assoc_ind() ***/
 
 /**
- * lim_process_mlm_disassoc_ind() - This function is called to processes
- * MLM_DISASSOC_IND message from MLM State machine.
- * @mac:       Pointer to Global MAC structure
- * @msg_buf:    A pointer to the MLM message buffer
+ * lim_process_mlm_disassoc_ind()
  *
- * Return None
+ ***FUNCTION:
+ * This function is called to processes MLM_DISASSOC_IND
+ * message from MLM State machine.
+ *
+ ***LOGIC:
+ *
+ ***ASSUMPTIONS:
+ *
+ ***NOTE:
+ *
+ * @param pMac       Pointer to Global MAC structure
+ * @param pMsgBuf    A pointer to the MLM message buffer
+ *
+ * @return None
  */
-void lim_process_mlm_disassoc_ind(struct mac_context *mac, uint32_t *msg_buf)
+void lim_process_mlm_disassoc_ind(tpAniSirGlobal pMac, uint32_t *pMsgBuf)
 {
 	tLimMlmDisassocInd *pMlmDisassocInd;
-	struct pe_session *pe_session;
+	tpPESession psessionEntry;
 
-	pMlmDisassocInd = (tLimMlmDisassocInd *)msg_buf;
-	pe_session = pe_find_session_by_session_id(mac,
+	pMlmDisassocInd = (tLimMlmDisassocInd *) pMsgBuf;
+	psessionEntry = pe_find_session_by_session_id(pMac,
 				pMlmDisassocInd->sessionId);
-	if (!pe_session) {
+	if (psessionEntry == NULL) {
 		pe_err("Session Does not exist for given sessionID");
 		return;
 	}
-	switch (GET_LIM_SYSTEM_ROLE(pe_session)) {
+	switch (GET_LIM_SYSTEM_ROLE(psessionEntry)) {
 	case eLIM_STA_IN_IBSS_ROLE:
 		break;
 	case eLIM_STA_ROLE:
-		pe_session->limSmeState = eLIM_SME_WT_DISASSOC_STATE;
+		psessionEntry->limSmeState = eLIM_SME_WT_DISASSOC_STATE;
 		MTRACE(mac_trace
-			       (mac, TRACE_CODE_SME_STATE, pe_session->peSessionId,
-			       pe_session->limSmeState));
+			       (pMac, TRACE_CODE_SME_STATE, psessionEntry->peSessionId,
+			       psessionEntry->limSmeState));
 		break;
 	default:        /* eLIM_AP_ROLE */
 		pe_debug("*** Peer staId=%d Disassociated ***",
@@ -841,7 +910,7 @@ void lim_process_mlm_disassoc_ind(struct mac_context *mac, uint32_t *msg_buf)
 		/* Send SME_DISASOC_IND after Polaris cleanup */
 		/* (after receiving LIM_MLM_PURGE_STA_IND) */
 		break;
-	} /* end switch (GET_LIM_SYSTEM_ROLE(pe_session)) */
+	} /* end switch (GET_LIM_SYSTEM_ROLE(psessionEntry)) */
 } /*** end lim_process_mlm_disassoc_ind() ***/
 
 /**
@@ -854,18 +923,18 @@ void lim_process_mlm_disassoc_ind(struct mac_context *mac, uint32_t *msg_buf)
  *
  * Return: None
  */
-void lim_process_mlm_disassoc_cnf(struct mac_context *mac_ctx,
+void lim_process_mlm_disassoc_cnf(tpAniSirGlobal mac_ctx,
 	uint32_t *msg)
 {
 	tSirResultCodes result_code;
 	tLimMlmDisassocCnf *disassoc_cnf;
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 
 	disassoc_cnf = (tLimMlmDisassocCnf *) msg;
 
 	session_entry =
 		pe_find_session_by_session_id(mac_ctx, disassoc_cnf->sessionId);
-	if (!session_entry) {
+	if (session_entry == NULL) {
 		pe_err("session Does not exist for given session Id");
 		return;
 	}
@@ -915,13 +984,13 @@ void lim_process_mlm_disassoc_cnf(struct mac_context *mac_ctx,
 				disassoc_cnf->peerMacAddr, result_code,
 				disassoc_cnf->disassocTrigger,
 				disassoc_cnf->aid, session_entry->smeSessionId,
-				session_entry);
+				session_entry->transactionId, session_entry);
 		}
 	} else if (LIM_IS_AP_ROLE(session_entry)) {
 		lim_send_sme_disassoc_ntf(mac_ctx, disassoc_cnf->peerMacAddr,
 			result_code, disassoc_cnf->disassocTrigger,
 			disassoc_cnf->aid, session_entry->smeSessionId,
-			session_entry);
+			session_entry->transactionId, session_entry);
 	}
 }
 
@@ -935,10 +1004,10 @@ void lim_process_mlm_disassoc_cnf(struct mac_context *mac_ctx,
  *
  * Return: None
  */
-static void lim_process_mlm_deauth_ind(struct mac_context *mac_ctx,
+static void lim_process_mlm_deauth_ind(tpAniSirGlobal mac_ctx,
 				       tLimMlmDeauthInd *deauth_ind)
 {
-	struct pe_session *session;
+	tpPESession session;
 	uint8_t session_id;
 	enum eLimSystemRole role;
 
@@ -950,8 +1019,8 @@ static void lim_process_mlm_deauth_ind(struct mac_context *mac_ctx,
 					   deauth_ind->peerMacAddr,
 					   &session_id);
 	if (!session) {
-		pe_err("session does not exist for Addr:" QDF_MAC_ADDR_STR,
-		       QDF_MAC_ADDR_ARRAY(deauth_ind->peerMacAddr));
+		pe_err("session does not exist for Addr:" MAC_ADDRESS_STR,
+		       MAC_ADDR_ARRAY(deauth_ind->peerMacAddr));
 		return;
 	}
 	role = GET_LIM_SYSTEM_ROLE(session);
@@ -977,26 +1046,26 @@ static void lim_process_mlm_deauth_ind(struct mac_context *mac_ctx,
  *
  ***NOTE:
  *
- * @param mac       Pointer to Global MAC structure
- * @param msg_buf    A pointer to the MLM message buffer
+ * @param pMac       Pointer to Global MAC structure
+ * @param pMsgBuf    A pointer to the MLM message buffer
  *
  * @return None
  */
-void lim_process_mlm_deauth_cnf(struct mac_context *mac, uint32_t *msg_buf)
+void lim_process_mlm_deauth_cnf(tpAniSirGlobal pMac, uint32_t *pMsgBuf)
 {
 	uint16_t aid;
 	tSirResultCodes resultCode;
 	tLimMlmDeauthCnf *pMlmDeauthCnf;
-	struct pe_session *pe_session;
+	tpPESession psessionEntry;
 
-	if (!msg_buf) {
+	if (pMsgBuf == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
-	pMlmDeauthCnf = (tLimMlmDeauthCnf *)msg_buf;
-	pe_session = pe_find_session_by_session_id(mac,
+	pMlmDeauthCnf = (tLimMlmDeauthCnf *) pMsgBuf;
+	psessionEntry = pe_find_session_by_session_id(pMac,
 				pMlmDeauthCnf->sessionId);
-	if (!pe_session) {
+	if (psessionEntry == NULL) {
 		pe_err("session does not exist for given session Id");
 		return;
 	}
@@ -1006,11 +1075,11 @@ void lim_process_mlm_deauth_cnf(struct mac_context *mac, uint32_t *msg_buf)
 		      eLIM_LINK_MONITORING_DEAUTH) ?
 		     eSIR_SME_LOST_LINK_WITH_PEER_RESULT_CODE :
 		     pMlmDeauthCnf->resultCode;
-	aid = LIM_IS_AP_ROLE(pe_session) ? pMlmDeauthCnf->aid : 1;
-	if (LIM_IS_STA_ROLE(pe_session)) {
+	aid = LIM_IS_AP_ROLE(psessionEntry) ? pMlmDeauthCnf->aid : 1;
+	if (LIM_IS_STA_ROLE(psessionEntry)) {
 		/* Deauth Confirm from MLM */
-		if ((pe_session->limSmeState != eLIM_SME_WT_DISASSOC_STATE)
-			&& pe_session->limSmeState !=
+		if ((psessionEntry->limSmeState != eLIM_SME_WT_DISASSOC_STATE)
+			&& psessionEntry->limSmeState !=
 					eLIM_SME_WT_DEAUTH_STATE) {
 			/**
 			 * Should not have received Deauth confirm
@@ -1018,27 +1087,28 @@ void lim_process_mlm_deauth_cnf(struct mac_context *mac, uint32_t *msg_buf)
 			 * Log error
 			 */
 			pe_err("received unexpected MLM_DEAUTH_CNF in state %X",
-				       pe_session->limSmeState);
+				       psessionEntry->limSmeState);
 			return;
 		}
 		if (pMlmDeauthCnf->resultCode == eSIR_SME_SUCCESS) {
-			pe_session->limSmeState = eLIM_SME_IDLE_STATE;
+			psessionEntry->limSmeState = eLIM_SME_IDLE_STATE;
 			pe_debug("*** Deauthenticated with BSS ***");
 		} else
-			pe_session->limSmeState =
-				pe_session->limPrevSmeState;
+			psessionEntry->limSmeState =
+				psessionEntry->limPrevSmeState;
 		MTRACE(mac_trace
-			       (mac, TRACE_CODE_SME_STATE, pe_session->peSessionId,
-			       pe_session->limSmeState));
+			       (pMac, TRACE_CODE_SME_STATE, psessionEntry->peSessionId,
+			       psessionEntry->limSmeState));
 
-		if (mac->lim.gLimRspReqd)
-			mac->lim.gLimRspReqd = false;
+		if (pMac->lim.gLimRspReqd)
+			pMac->lim.gLimRspReqd = false;
 	}
 	/* On STA or on BASIC AP, send SME_DEAUTH_RSP to host */
-	lim_send_sme_deauth_ntf(mac, pMlmDeauthCnf->peer_macaddr.bytes,
+	lim_send_sme_deauth_ntf(pMac, pMlmDeauthCnf->peer_macaddr.bytes,
 				resultCode,
 				pMlmDeauthCnf->deauthTrigger,
-				aid, pe_session->smeSessionId);
+				aid, psessionEntry->smeSessionId,
+				psessionEntry->transactionId);
 } /*** end lim_process_mlm_deauth_cnf() ***/
 
 /**
@@ -1054,39 +1124,39 @@ void lim_process_mlm_deauth_cnf(struct mac_context *mac, uint32_t *msg_buf)
  *
  ***NOTE:
  *
- * @param mac       Pointer to Global MAC structure
- * @param msg_buf    A pointer to the MLM message buffer
+ * @param pMac       Pointer to Global MAC structure
+ * @param pMsgBuf    A pointer to the MLM message buffer
  *
  * @return None
  */
-void lim_process_mlm_purge_sta_ind(struct mac_context *mac, uint32_t *msg_buf)
+void lim_process_mlm_purge_sta_ind(tpAniSirGlobal pMac, uint32_t *pMsgBuf)
 {
 	tSirResultCodes resultCode;
 	tpLimMlmPurgeStaInd pMlmPurgeStaInd;
-	struct pe_session *pe_session;
+	tpPESession psessionEntry;
 
-	if (!msg_buf) {
+	if (pMsgBuf == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
-	pMlmPurgeStaInd = (tpLimMlmPurgeStaInd)msg_buf;
-	pe_session = pe_find_session_by_session_id(mac,
+	pMlmPurgeStaInd = (tpLimMlmPurgeStaInd) pMsgBuf;
+	psessionEntry = pe_find_session_by_session_id(pMac,
 				pMlmPurgeStaInd->sessionId);
-	if (!pe_session) {
+	if (psessionEntry == NULL) {
 		pe_err("session does not exist for given bssId");
 		return;
 	}
 	/* Purge STA indication from MLM */
 	resultCode = (tSirResultCodes) pMlmPurgeStaInd->reasonCode;
-	switch (GET_LIM_SYSTEM_ROLE(pe_session)) {
+	switch (GET_LIM_SYSTEM_ROLE(psessionEntry)) {
 	case eLIM_STA_IN_IBSS_ROLE:
 		break;
 	case eLIM_STA_ROLE:
 	default:        /* eLIM_AP_ROLE */
-		if (LIM_IS_STA_ROLE(pe_session) &&
-		   (pe_session->limSmeState !=
+		if (LIM_IS_STA_ROLE(psessionEntry) &&
+		   (psessionEntry->limSmeState !=
 			eLIM_SME_WT_DISASSOC_STATE) &&
-		   (pe_session->limSmeState != eLIM_SME_WT_DEAUTH_STATE)) {
+		   (psessionEntry->limSmeState != eLIM_SME_WT_DEAUTH_STATE)) {
 			/**
 			 * Should not have received
 			 * Purge STA indication
@@ -1094,35 +1164,38 @@ void lim_process_mlm_purge_sta_ind(struct mac_context *mac, uint32_t *msg_buf)
 			 * Log error
 			 */
 			pe_err("received unexpected MLM_PURGE_STA_IND in state %X",
-				       pe_session->limSmeState);
+				       psessionEntry->limSmeState);
 			break;
 		}
 		pe_debug("*** Cleanup completed for staId=%d ***",
 			       pMlmPurgeStaInd->aid);
-		if (LIM_IS_STA_ROLE(pe_session)) {
-			pe_session->limSmeState = eLIM_SME_IDLE_STATE;
+
+		if (LIM_IS_STA_ROLE(psessionEntry)) {
+			psessionEntry->limSmeState = eLIM_SME_IDLE_STATE;
 			MTRACE(mac_trace
-				       (mac, TRACE_CODE_SME_STATE,
-				       pe_session->peSessionId,
-				       pe_session->limSmeState));
+				       (pMac, TRACE_CODE_SME_STATE,
+				       psessionEntry->peSessionId,
+				       psessionEntry->limSmeState));
 
 		}
 		if (pMlmPurgeStaInd->purgeTrigger == eLIM_PEER_ENTITY_DEAUTH) {
-			lim_send_sme_deauth_ntf(mac,
+			lim_send_sme_deauth_ntf(pMac,
 						pMlmPurgeStaInd->peerMacAddr,
 						resultCode,
 						pMlmPurgeStaInd->purgeTrigger,
 						pMlmPurgeStaInd->aid,
-						pe_session->smeSessionId);
+						psessionEntry->smeSessionId,
+						psessionEntry->transactionId);
 		} else
-			lim_send_sme_disassoc_ntf(mac,
+			lim_send_sme_disassoc_ntf(pMac,
 						  pMlmPurgeStaInd->peerMacAddr,
 						  resultCode,
 						  pMlmPurgeStaInd->purgeTrigger,
 						  pMlmPurgeStaInd->aid,
-						  pe_session->smeSessionId,
-						  pe_session);
-	} /* end switch (GET_LIM_SYSTEM_ROLE(pe_session)) */
+						  psessionEntry->smeSessionId,
+						  psessionEntry->transactionId,
+						  psessionEntry);
+	} /* end switch (GET_LIM_SYSTEM_ROLE(psessionEntry)) */
 } /*** end lim_process_mlm_purge_sta_ind() ***/
 
 /**
@@ -1138,31 +1211,31 @@ void lim_process_mlm_purge_sta_ind(struct mac_context *mac, uint32_t *msg_buf)
  *
  ***NOTE:
  *
- * @param mac       Pointer to Global MAC structure
- * @param msg_buf    A pointer to the MLM message buffer
+ * @param pMac       Pointer to Global MAC structure
+ * @param pMsgBuf    A pointer to the MLM message buffer
  *
  * @return None
  */
-void lim_process_mlm_set_keys_cnf(struct mac_context *mac, uint32_t *msg_buf)
+void lim_process_mlm_set_keys_cnf(tpAniSirGlobal pMac, uint32_t *pMsgBuf)
 {
 	/* Prepare and send SME_SETCONTEXT_RSP message */
 	tLimMlmSetKeysCnf *pMlmSetKeysCnf;
-	struct pe_session *pe_session;
+	tpPESession psessionEntry;
 	uint16_t aid;
 	tpDphHashNode sta_ds;
 
-	if (!msg_buf) {
+	if (pMsgBuf == NULL) {
 		pe_err("Buffer is Pointing to NULL");
 		return;
 	}
-	pMlmSetKeysCnf = (tLimMlmSetKeysCnf *)msg_buf;
-	pe_session = pe_find_session_by_session_id(mac,
+	pMlmSetKeysCnf = (tLimMlmSetKeysCnf *) pMsgBuf;
+	psessionEntry = pe_find_session_by_session_id(pMac,
 					   pMlmSetKeysCnf->sessionId);
-	if (!pe_session) {
+	if (psessionEntry == NULL) {
 		pe_err("session does not exist for given sessionId");
 		return;
 	}
-	pe_session->is_key_installed = 0;
+	psessionEntry->is_key_installed = 0;
 	pe_debug("Received MLM_SETKEYS_CNF with resultCode = %d",
 		pMlmSetKeysCnf->resultCode);
 	/* if the status is success keys are installed in the
@@ -1170,22 +1243,23 @@ void lim_process_mlm_set_keys_cnf(struct mac_context *mac, uint32_t *msg_buf)
 	*/
 	if (eSIR_SME_SUCCESS == pMlmSetKeysCnf->resultCode) {
 		if (pMlmSetKeysCnf->key_len_nonzero)
-			pe_session->is_key_installed = 1;
-		if (LIM_IS_AP_ROLE(pe_session)) {
-			sta_ds = dph_lookup_hash_entry(mac,
+			psessionEntry->is_key_installed = 1;
+		if (LIM_IS_AP_ROLE(psessionEntry)) {
+			sta_ds = dph_lookup_hash_entry(pMac,
 				pMlmSetKeysCnf->peer_macaddr.bytes,
-				&aid, &pe_session->dph.dphHashTable);
-			if (sta_ds && pMlmSetKeysCnf->key_len_nonzero)
+				&aid, &psessionEntry->dph.dphHashTable);
+			if (sta_ds != NULL && pMlmSetKeysCnf->key_len_nonzero)
 				sta_ds->is_key_installed = 1;
 		}
 	}
-	pe_debug("is_key_installed = %d", pe_session->is_key_installed);
+	pe_debug("is_key_installed = %d", psessionEntry->is_key_installed);
 
-	lim_send_sme_set_context_rsp(mac,
+	lim_send_sme_set_context_rsp(pMac,
 				     pMlmSetKeysCnf->peer_macaddr,
 				     1,
 				     (tSirResultCodes) pMlmSetKeysCnf->resultCode,
-				     pe_session, pe_session->smeSessionId);
+				     psessionEntry, psessionEntry->smeSessionId,
+				     psessionEntry->transactionId);
 } /*** end lim_process_mlm_set_keys_cnf() ***/
 
 /**
@@ -1199,12 +1273,13 @@ void lim_process_mlm_set_keys_cnf(struct mac_context *mac, uint32_t *msg_buf)
  *
  * Return: None
  */
-static void lim_join_result_callback(struct mac_context *mac, void *param,
+static void lim_join_result_callback(tpAniSirGlobal mac, void *param,
 				     bool status)
 {
 	join_params *link_state_params = (join_params *) param;
-	struct pe_session *session;
+	tpPESession session;
 	uint8_t sme_session_id;
+	uint16_t sme_trans_id;
 
 	if (!link_state_params) {
 		pe_err("Link state params is NULL");
@@ -1217,100 +1292,13 @@ static void lim_join_result_callback(struct mac_context *mac, void *param,
 		return;
 	}
 	sme_session_id = session->smeSessionId;
+	sme_trans_id = session->transactionId;
 	lim_send_sme_join_reassoc_rsp(mac, eWNI_SME_JOIN_RSP,
 				      link_state_params->result_code,
 				      link_state_params->prot_status_code,
-				      session, sme_session_id);
+				      session, sme_session_id, sme_trans_id);
 	pe_delete_session(mac, session);
 	qdf_mem_free(link_state_params);
-}
-
-QDF_STATUS lim_sta_send_down_link(join_params *param)
-{
-	struct pe_session *session;
-	struct mac_context *mac_ctx;
-	tpDphHashNode sta_ds = NULL;
-
-	if (!param) {
-		pe_err("param is NULL");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
-	if (!mac_ctx) {
-		pe_err("Mac context is NULL");
-		return QDF_STATUS_E_INVAL;
-	}
-	session = pe_find_session_by_session_id(mac_ctx, param->pe_session_id);
-	if (!session) {
-		pe_err("session is NULL");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	sta_ds = dph_get_hash_entry(mac_ctx, DPH_STA_HASH_INDEX_PEER,
-				    &session->dph.dphHashTable);
-	if (sta_ds) {
-		sta_ds->mlmStaContext.disassocReason =
-			eSIR_MAC_UNSPEC_FAILURE_REASON;
-		sta_ds->mlmStaContext.cleanupTrigger =
-			eLIM_JOIN_FAILURE;
-		sta_ds->mlmStaContext.resultCode = param->result_code;
-		sta_ds->mlmStaContext.protStatusCode = param->prot_status_code;
-		/*
-		 * FIX_ME: at the end of lim_cleanup_rx_path,
-		 * make sure PE is sending eWNI_SME_JOIN_RSP
-		 * to SME
-		 */
-		lim_cleanup_rx_path(mac_ctx, sta_ds, session);
-		qdf_mem_free(session->pLimJoinReq);
-		session->pLimJoinReq = NULL;
-		/* Cleanup if add bss failed */
-		if (session->add_bss_failed) {
-			dph_delete_hash_entry(mac_ctx,
-				 sta_ds->staAddr, sta_ds->assocId,
-				 &session->dph.dphHashTable);
-			goto error;
-		}
-		return QDF_STATUS_SUCCESS;
-	}
-	qdf_mem_free(session->pLimJoinReq);
-	session->pLimJoinReq = NULL;
-
-error:
-	/*
-	 * Delete the session if JOIN failure occurred.
-	 * if the peer is not created, then there is no
-	 * need to send down the set link state which will
-	 * try to delete the peer. Instead a join response
-	 * failure should be sent to the upper layers.
-	 */
-	if (param->result_code != eSIR_SME_PEER_CREATE_FAILED) {
-		join_params *link_state_arg;
-
-		link_state_arg = qdf_mem_malloc(sizeof(*link_state_arg));
-		if (link_state_arg) {
-			link_state_arg->result_code = param->result_code;
-			link_state_arg->prot_status_code =
-							param->prot_status_code;
-			link_state_arg->pe_session_id = session->peSessionId;
-		}
-		if (lim_set_link_state(mac_ctx, eSIR_LINK_DOWN_STATE,
-				       session->bssId,
-				       session->self_mac_addr,
-				       lim_join_result_callback,
-				       link_state_arg) != QDF_STATUS_SUCCESS) {
-			qdf_mem_free(link_state_arg);
-			pe_err("Failed to set the LinkState");
-		}
-		return QDF_STATUS_SUCCESS;
-	}
-
-
-	lim_send_sme_join_reassoc_rsp(mac_ctx, eWNI_SME_JOIN_RSP,
-				      param->result_code,
-				      param->prot_status_code,
-				      session, session->smeSessionId);
-	return QDF_STATUS_SUCCESS;
 }
 
 /**
@@ -1327,38 +1315,85 @@ error:
  *
  * Return: None
  */
-void lim_handle_sme_join_result(struct mac_context *mac_ctx,
+void lim_handle_sme_join_result(tpAniSirGlobal mac_ctx,
 	tSirResultCodes result_code, uint16_t prot_status_code,
-	struct pe_session *session)
+	tpPESession session_entry)
 {
-	join_params param;
-	QDF_STATUS status;
+	tpDphHashNode sta_ds = NULL;
+	uint8_t sme_session_id;
+	uint16_t sme_trans_id;
+	join_params *param = NULL;
 
-	if (!session) {
-		pe_err("session is NULL");
+	if (session_entry == NULL) {
+		pe_err("psessionEntry is NULL");
 		return;
 	}
-	if (result_code == eSIR_SME_SUCCESS) {
-		wlan_vdev_mlme_sm_deliver_evt(session->vdev,
-					      WLAN_VDEV_SM_EV_START_SUCCESS,
-					      0, NULL);
-		return lim_send_sme_join_reassoc_rsp(mac_ctx, eWNI_SME_JOIN_RSP,
-						     result_code,
-						     prot_status_code, session,
-						     session->smeSessionId);
+	sme_session_id = session_entry->smeSessionId;
+	sme_trans_id = session_entry->transactionId;
+	/*
+	 * When associations is failed , delete the session created
+	 * and pass NULL  to  limsendsmeJoinReassocRsp()
+	 */
+	if (result_code != eSIR_SME_SUCCESS) {
+		sta_ds =
+			dph_get_hash_entry(mac_ctx, DPH_STA_HASH_INDEX_PEER,
+				&session_entry->dph.dphHashTable);
+		if (sta_ds != NULL) {
+			sta_ds->mlmStaContext.disassocReason =
+				eSIR_MAC_UNSPEC_FAILURE_REASON;
+			sta_ds->mlmStaContext.cleanupTrigger =
+				eLIM_JOIN_FAILURE;
+			sta_ds->mlmStaContext.resultCode = result_code;
+			sta_ds->mlmStaContext.protStatusCode = prot_status_code;
+			/*
+			 * FIX_ME: at the end of lim_cleanup_rx_path,
+			 * make sure PE is sending eWNI_SME_JOIN_RSP
+			 * to SME
+			 */
+			lim_cleanup_rx_path(mac_ctx, sta_ds, session_entry);
+			qdf_mem_free(session_entry->pLimJoinReq);
+			session_entry->pLimJoinReq = NULL;
+			/* Cleanup if add bss failed */
+			if (session_entry->add_bss_failed) {
+				dph_delete_hash_entry(mac_ctx,
+					 sta_ds->staAddr, sta_ds->assocId,
+					 &session_entry->dph.dphHashTable);
+				goto error;
+			}
+			return;
+		}
+		qdf_mem_free(session_entry->pLimJoinReq);
+		session_entry->pLimJoinReq = NULL;
+	}
+error:
+	/* Delete the session if JOIN failure occurred.
+	 * if the peer is not created, then there is no
+	 * need to send down the set link state which will
+	 * try to delete the peer. Instead a join response
+	 * failure should be sent to the upper layers.
+	 */
+	if (result_code != eSIR_SME_SUCCESS &&
+	    result_code != eSIR_SME_PEER_CREATE_FAILED) {
+		param = qdf_mem_malloc(sizeof(join_params));
+		if (param != NULL) {
+			param->result_code = result_code;
+			param->prot_status_code = prot_status_code;
+			param->pe_session_id = session_entry->peSessionId;
+		}
+		if (lim_set_link_state
+			(mac_ctx, eSIR_LINK_DOWN_STATE, session_entry->bssId,
+			 session_entry->selfMacAddr, lim_join_result_callback,
+			 param) != eSIR_SUCCESS) {
+			qdf_mem_free(param);
+			param = NULL;
+			pe_err("Failed to set the LinkState");
+		}
+		return;
 	}
 
-	param.result_code = result_code;
-	param.prot_status_code = prot_status_code;
-	param.pe_session_id = session->peSessionId;
-
-	mlme_set_connection_fail(session->vdev, true);
-	status = wlan_vdev_mlme_sm_deliver_evt(session->vdev,
-					       WLAN_VDEV_SM_EV_CONNECTION_FAIL,
-					       sizeof(param), &param);
-	return;
+	lim_send_sme_join_reassoc_rsp(mac_ctx, eWNI_SME_JOIN_RSP, result_code,
+		prot_status_code, session_entry, sme_session_id, sme_trans_id);
 }
-
 
 /**
  * lim_process_mlm_add_sta_rsp()
@@ -1373,31 +1408,29 @@ void lim_handle_sme_join_result(struct mac_context *mac_ctx,
  *
  ***NOTE:
  *
- * @param  mac      Pointer to Global MAC structure
- * @param  struct scheduler_msg  The MsgQ header, which contains the
- *  response buffer
+ * @param  pMac      Pointer to Global MAC structure
+ * @param  tSirMsgQ  The MsgQ header, which contains the response buffer
  *
  * @return None
  */
-void lim_process_mlm_add_sta_rsp(struct mac_context *mac,
-				 struct scheduler_msg *limMsgQ,
-				 struct pe_session *pe_session)
+void lim_process_mlm_add_sta_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ,
+				 tpPESession psessionEntry)
 {
 	/* we need to process the deferred message since the initiating req. there might be nested request. */
 	/* in the case of nested request the new request initiated from the response will take care of resetting */
 	/* the deffered flag. */
-	SET_LIM_PROCESS_DEFD_MESGS(mac, true);
-	if (LIM_IS_AP_ROLE(pe_session)) {
-		lim_process_ap_mlm_add_sta_rsp(mac, limMsgQ, pe_session);
+	SET_LIM_PROCESS_DEFD_MESGS(pMac, true);
+	if (LIM_IS_AP_ROLE(psessionEntry)) {
+		lim_process_ap_mlm_add_sta_rsp(pMac, limMsgQ, psessionEntry);
 		return;
 	}
-	lim_process_sta_mlm_add_sta_rsp(mac, limMsgQ, pe_session);
+	lim_process_sta_mlm_add_sta_rsp(pMac, limMsgQ, psessionEntry);
 }
 
 /**
  * lim_process_sta_mlm_add_sta_rsp () - Process add sta response
  * @mac_ctx:  Pointer to mac context
- * @msg:  struct scheduler_msg *an Message structure
+ * @msg:  tpSirMsgQan Message structure
  * @session_entry: PE session entry
  *
  * Process ADD STA response sent from WMA and posts results
@@ -1406,17 +1439,17 @@ void lim_process_mlm_add_sta_rsp(struct mac_context *mac,
  * Return: Null
  */
 
-void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg, struct pe_session *session_entry)
+void lim_process_sta_mlm_add_sta_rsp(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg, tpPESession session_entry)
 {
 	tLimMlmAssocCnf mlm_assoc_cnf;
 	tpDphHashNode sta_ds;
 	uint32_t msg_type = LIM_MLM_ASSOC_CNF;
 	tpAddStaParams add_sta_params = (tpAddStaParams) msg->bodyptr;
-	struct pe_session *ft_session = NULL;
+	tpPESession ft_session = NULL;
 	uint8_t ft_session_id;
 
-	if (!add_sta_params) {
+	if (NULL == add_sta_params) {
 		pe_err("Encountered NULL Pointer");
 		return;
 	}
@@ -1464,7 +1497,7 @@ void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
 
 			ft_session = pe_find_session_by_bssid(mac_ctx,
 				session_entry->limReAssocbssId, &ft_session_id);
-			if (ft_session &&
+			if (ft_session != NULL &&
 				ft_ctx->PreAuthKeyInfo.extSetStaKeyParamValid
 				== true) {
 				tpLimMlmSetKeysReq pMlmStaKeys =
@@ -1482,7 +1515,7 @@ void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
 		sta_ds =
 			dph_get_hash_entry(mac_ctx, DPH_STA_HASH_INDEX_PEER,
 				&session_entry->dph.dphHashTable);
-		if (sta_ds) {
+		if (NULL != sta_ds) {
 			sta_ds->mlmStaContext.mlmState =
 				eLIM_MLM_LINK_ESTABLISHED_STATE;
 			sta_ds->nss = add_sta_params->nss;
@@ -1515,21 +1548,6 @@ void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
 		 * be passed in here
 		 */
 		mlm_assoc_cnf.resultCode = (tSirResultCodes) eSIR_SME_SUCCESS;
-		lim_send_obss_color_collision_cfg(mac_ctx, session_entry,
-					OBSS_COLOR_COLLISION_DETECTION);
-		if (lim_is_session_he_capable(session_entry) && sta_ds) {
-			if (mac_ctx->usr_cfg_mu_edca_params) {
-				pe_debug("Send user cfg MU EDCA params to FW");
-				lim_send_edca_params(mac_ctx,
-					     mac_ctx->usr_mu_edca_params,
-					     sta_ds->bssId, true);
-			} else if (session_entry->mu_edca_present) {
-				pe_debug("Send MU EDCA params to FW");
-				lim_send_edca_params(mac_ctx,
-					session_entry->ap_mu_edca_params,
-					sta_ds->bssId, true);
-			}
-		}
 	} else {
 		pe_err("ADD_STA failed!");
 		if (session_entry->limSmeState == eLIM_SME_WT_REASSOC_STATE)
@@ -1541,7 +1559,7 @@ void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
 		mlm_assoc_cnf.protStatusCode = eSIR_MAC_UNSPEC_FAILURE_STATUS;
 	}
 end:
-	if (msg->bodyptr) {
+	if (NULL != msg->bodyptr) {
 		qdf_mem_free(add_sta_params);
 		msg->bodyptr = NULL;
 	}
@@ -1553,144 +1571,141 @@ end:
 	return;
 }
 
-void lim_process_mlm_del_bss_rsp(struct mac_context *mac,
-				 struct scheduler_msg *limMsgQ,
-				 struct pe_session *pe_session)
+void lim_process_mlm_del_bss_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ,
+				 tpPESession psessionEntry)
 {
 	/* we need to process the deferred message since the initiating req. there might be nested request. */
 	/* in the case of nested request the new request initiated from the response will take care of resetting */
 	/* the deffered flag. */
-	SET_LIM_PROCESS_DEFD_MESGS(mac, true);
-	mac->sys.gSysFrameCount[SIR_MAC_MGMT_FRAME][SIR_MAC_MGMT_DEAUTH] = 0;
+	SET_LIM_PROCESS_DEFD_MESGS(pMac, true);
+	pMac->sys.gSysFrameCount[SIR_MAC_MGMT_FRAME][SIR_MAC_MGMT_DEAUTH] = 0;
 
-	if (LIM_IS_AP_ROLE(pe_session) &&
-	    (pe_session->statypeForBss == STA_ENTRY_SELF)) {
-		lim_process_ap_mlm_del_bss_rsp(mac, limMsgQ, pe_session);
+	if (LIM_IS_AP_ROLE(psessionEntry) &&
+	    (psessionEntry->statypeForBss == STA_ENTRY_SELF)) {
+		lim_process_ap_mlm_del_bss_rsp(pMac, limMsgQ, psessionEntry);
 		return;
 	}
-	lim_process_sta_mlm_del_bss_rsp(mac, limMsgQ, pe_session);
+	lim_process_sta_mlm_del_bss_rsp(pMac, limMsgQ, psessionEntry);
 
 #ifdef WLAN_FEATURE_11W
-	if (pe_session->limRmfEnabled) {
-		if (QDF_STATUS_SUCCESS !=
-		    lim_send_exclude_unencrypt_ind(mac, true, pe_session)) {
+	if (psessionEntry->limRmfEnabled) {
+		if (eSIR_SUCCESS !=
+		    lim_send_exclude_unencrypt_ind(pMac, true, psessionEntry)) {
 			pe_err("Could not send down Exclude Unencrypted Indication!");
 		}
 	}
 #endif
 }
 
-void lim_process_sta_mlm_del_bss_rsp(struct mac_context *mac,
-				     struct scheduler_msg *limMsgQ,
-				     struct pe_session *pe_session)
+void lim_process_sta_mlm_del_bss_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ,
+				     tpPESession psessionEntry)
 {
 	tpDeleteBssParams pDelBssParams = (tpDeleteBssParams) limMsgQ->bodyptr;
-	tpDphHashNode sta =
-		dph_get_hash_entry(mac, DPH_STA_HASH_INDEX_PEER,
-				   &pe_session->dph.dphHashTable);
-	tSirResultCodes status_code = eSIR_SME_SUCCESS;
+	tpDphHashNode pStaDs =
+		dph_get_hash_entry(pMac, DPH_STA_HASH_INDEX_PEER,
+				   &psessionEntry->dph.dphHashTable);
+	tSirResultCodes statusCode = eSIR_SME_SUCCESS;
 
-	if (!pDelBssParams) {
+	if (NULL == pDelBssParams) {
 		pe_err("Invalid body pointer in message");
 		goto end;
 	}
 	if (QDF_STATUS_SUCCESS == pDelBssParams->status) {
 		pe_debug("STA received the DEL_BSS_RSP for BSSID: %X",
-			       pDelBssParams->bss_idx);
+			       pDelBssParams->bssIdx);
 		if (lim_set_link_state
-			    (mac, eSIR_LINK_IDLE_STATE, pe_session->bssId,
-			    pe_session->self_mac_addr, NULL,
-			    NULL) != QDF_STATUS_SUCCESS) {
+			    (pMac, eSIR_LINK_IDLE_STATE, psessionEntry->bssId,
+			    psessionEntry->selfMacAddr, NULL,
+			    NULL) != eSIR_SUCCESS) {
 			pe_err("Failure in setting link state to IDLE");
-			status_code = eSIR_SME_REFUSED;
+			statusCode = eSIR_SME_REFUSED;
 			goto end;
 		}
-		if (!sta) {
+		if (pStaDs == NULL) {
 			pe_err("DPH Entry for STA 1 missing");
-			status_code = eSIR_SME_REFUSED;
+			statusCode = eSIR_SME_REFUSED;
 			goto end;
 		}
 		if (eLIM_MLM_WT_DEL_BSS_RSP_STATE !=
-		    sta->mlmStaContext.mlmState) {
+		    pStaDs->mlmStaContext.mlmState) {
 			pe_err("Received unexpected WMA_DEL_BSS_RSP in state %X",
-				       sta->mlmStaContext.mlmState);
-			status_code = eSIR_SME_REFUSED;
+				       pStaDs->mlmStaContext.mlmState);
+			statusCode = eSIR_SME_REFUSED;
 			goto end;
 		}
-		pe_debug("STA AssocID %d MAC",	sta->assocId);
-		       lim_print_mac_addr(mac, sta->staAddr, LOGD);
+		pe_debug("STA AssocID %d MAC",	pStaDs->assocId);
+		       lim_print_mac_addr(pMac, pStaDs->staAddr, LOGD);
 	} else {
 		pe_err("DEL BSS failed!");
-		status_code = eSIR_SME_STOP_BSS_FAILURE;
+		statusCode = eSIR_SME_STOP_BSS_FAILURE;
 	}
 end:
 	if (0 != limMsgQ->bodyptr) {
 		qdf_mem_free(pDelBssParams);
 		limMsgQ->bodyptr = NULL;
 	}
-	if (!sta)
+	if (pStaDs == NULL)
 		return;
-	if ((LIM_IS_STA_ROLE(pe_session)) &&
-	    (pe_session->limSmeState !=
+	if ((LIM_IS_STA_ROLE(psessionEntry)) &&
+	    (psessionEntry->limSmeState !=
 			eLIM_SME_WT_DISASSOC_STATE &&
-	    pe_session->limSmeState !=
+	    psessionEntry->limSmeState !=
 			eLIM_SME_WT_DEAUTH_STATE) &&
-	    sta->mlmStaContext.cleanupTrigger !=
+	    pStaDs->mlmStaContext.cleanupTrigger !=
 			eLIM_JOIN_FAILURE) {
 		/** The Case where the DelBss is invoked from
 		 *  context of other than normal DisAssoc / Deauth OR
 		 *  as part of Join Failure.
 		 */
-		lim_handle_del_bss_in_re_assoc_context(mac, sta, pe_session);
+		lim_handle_del_bss_in_re_assoc_context(pMac, pStaDs, psessionEntry);
 		return;
 	}
-	lim_prepare_and_send_del_sta_cnf(mac, sta, status_code, pe_session);
+	lim_prepare_and_send_del_sta_cnf(pMac, pStaDs, statusCode, psessionEntry);
 	return;
 }
 
-void lim_process_ap_mlm_del_bss_rsp(struct mac_context *mac,
-				    struct scheduler_msg *limMsgQ,
-				    struct pe_session *pe_session)
+void lim_process_ap_mlm_del_bss_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ,
+					   tpPESession psessionEntry)
 {
 	tSirResultCodes rc = eSIR_SME_SUCCESS;
-	QDF_STATUS status;
+	tSirRetStatus status;
 	tpDeleteBssParams pDelBss = (tpDeleteBssParams) limMsgQ->bodyptr;
 	tSirMacAddr nullBssid = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-	if (!pe_session) {
+	if (psessionEntry == NULL) {
 		pe_err("Session entry passed is NULL");
-		if (pDelBss) {
+		if (pDelBss != NULL) {
 			qdf_mem_free(pDelBss);
 			limMsgQ->bodyptr = NULL;
 		}
 		return;
 	}
 
-	if (!pDelBss) {
+	if (pDelBss == NULL) {
 		pe_err("BSS: DEL_BSS_RSP with no body!");
 		rc = eSIR_SME_REFUSED;
 		goto end;
 	}
-	mac->lim.gLimMlmState = eLIM_MLM_IDLE_STATE;
+	pMac->lim.gLimMlmState = eLIM_MLM_IDLE_STATE;
 	MTRACE(mac_trace
-		       (mac, TRACE_CODE_MLM_STATE, NO_SESSION,
-		       mac->lim.gLimMlmState));
+		       (pMac, TRACE_CODE_MLM_STATE, NO_SESSION,
+		       pMac->lim.gLimMlmState));
 
-	if (eLIM_MLM_WT_DEL_BSS_RSP_STATE != pe_session->limMlmState) {
+	if (eLIM_MLM_WT_DEL_BSS_RSP_STATE != psessionEntry->limMlmState) {
 		pe_err("Received unexpected WMA_DEL_BSS_RSP in state %X",
-			pe_session->limMlmState);
+			psessionEntry->limMlmState);
 		rc = eSIR_SME_REFUSED;
 		goto end;
 	}
 	if (pDelBss->status != QDF_STATUS_SUCCESS) {
 		pe_err("BSS: DEL_BSS_RSP error (%x) Bss %d",
-			pDelBss->status, pDelBss->bss_idx);
+			pDelBss->status, pDelBss->bssIdx);
 		rc = eSIR_SME_STOP_BSS_FAILURE;
 		goto end;
 	}
-	status = lim_set_link_state(mac, eSIR_LINK_IDLE_STATE, nullBssid,
-				    pe_session->self_mac_addr, NULL, NULL);
-	if (status != QDF_STATUS_SUCCESS) {
+	status = lim_set_link_state(pMac, eSIR_LINK_IDLE_STATE, nullBssid,
+				    psessionEntry->selfMacAddr, NULL, NULL);
+	if (status != eSIR_SUCCESS) {
 		rc = eSIR_SME_REFUSED;
 		goto end;
 	}
@@ -1698,16 +1713,17 @@ void lim_process_ap_mlm_del_bss_rsp(struct mac_context *mac,
 	 * to occupy the medium during non channel occupancy period. So resume the transmission after
 	 * HAL gives back the response.
 	 */
-	dph_hash_table_init(mac, &pe_session->dph.dphHashTable);
-	lim_delete_pre_auth_list(mac);
+	dph_hash_table_class_init(pMac, &psessionEntry->dph.dphHashTable);
+	lim_delete_pre_auth_list(pMac);
 	/* Initialize number of associated stations during cleanup */
-	pe_session->gLimNumOfCurrentSTAs = 0;
+	psessionEntry->gLimNumOfCurrentSTAs = 0;
 end:
-	lim_send_sme_rsp(mac, eWNI_SME_STOP_BSS_RSP, rc,
-			 pe_session->smeSessionId);
-	pe_delete_session(mac, pe_session);
+	lim_send_sme_rsp(pMac, eWNI_SME_STOP_BSS_RSP, rc,
+			 psessionEntry->smeSessionId,
+			 psessionEntry->transactionId);
+	pe_delete_session(pMac, psessionEntry);
 
-	if (pDelBss) {
+	if (pDelBss != NULL) {
 		qdf_mem_free(pDelBss);
 		limMsgQ->bodyptr = NULL;
 	}
@@ -1723,8 +1739,8 @@ end:
  *
  * Return: None
  */
-void lim_process_mlm_del_sta_rsp(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg)
+void lim_process_mlm_del_sta_rsp(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg)
 {
 	/*
 	 * we need to process the deferred message since the
@@ -1733,11 +1749,11 @@ void lim_process_mlm_del_sta_rsp(struct mac_context *mac_ctx,
 	 * initiated from the response will take care of resetting
 	 * the deffered flag.
 	 */
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 	tpDeleteStaParams del_sta_params;
 
 	del_sta_params = (tpDeleteStaParams) msg->bodyptr;
-	if (!del_sta_params) {
+	if (NULL == del_sta_params) {
 		pe_err("null pointer del_sta_params msg");
 		return;
 	}
@@ -1745,7 +1761,7 @@ void lim_process_mlm_del_sta_rsp(struct mac_context *mac_ctx,
 
 	session_entry = pe_find_session_by_session_id(mac_ctx,
 				del_sta_params->sessionId);
-	if (!session_entry) {
+	if (NULL == session_entry) {
 		pe_err("Session Doesn't exist: %d",
 			del_sta_params->sessionId);
 		qdf_mem_free(del_sta_params);
@@ -1780,22 +1796,22 @@ void lim_process_mlm_del_sta_rsp(struct mac_context *mac_ctx,
  *
  * Retunrn: None
  */
-void lim_process_ap_mlm_del_sta_rsp(struct mac_context *mac_ctx,
-					   struct scheduler_msg *msg,
-					   struct pe_session *session_entry)
+void lim_process_ap_mlm_del_sta_rsp(tpAniSirGlobal mac_ctx,
+					   tpSirMsgQ msg,
+					   tpPESession session_entry)
 {
 	tpDeleteStaParams del_sta_params = (tpDeleteStaParams) msg->bodyptr;
 	tpDphHashNode sta_ds;
 	tSirResultCodes status_code = eSIR_SME_SUCCESS;
 
-	if (!msg->bodyptr) {
+	if (msg->bodyptr == NULL) {
 		pe_err("msg->bodyptr NULL");
 		return;
 	}
 
 	sta_ds = dph_get_hash_entry(mac_ctx, del_sta_params->assocId,
 				    &session_entry->dph.dphHashTable);
-	if (!sta_ds) {
+	if (sta_ds == NULL) {
 		pe_err("DPH Entry for STA %X missing",
 			del_sta_params->assocId);
 		status_code = eSIR_SME_REFUSED;
@@ -1831,7 +1847,7 @@ void lim_process_ap_mlm_del_sta_rsp(struct mac_context *mac_ctx,
 		qdf_mem_free(del_sta_params);
 		msg->bodyptr = NULL;
 		if (lim_add_sta(mac_ctx, sta_ds, false, session_entry) !=
-		    QDF_STATUS_SUCCESS) {
+		    eSIR_SUCCESS) {
 			pe_err("could not Add STA with assocId: %d",
 				sta_ds->assocId);
 			/*
@@ -1841,7 +1857,7 @@ void lim_process_ap_mlm_del_sta_rsp(struct mac_context *mac_ctx,
 			if (sta_ds->qos.addtsPresent) {
 				tpLimTspecInfo pTspecInfo;
 
-				if (QDF_STATUS_SUCCESS ==
+				if (eSIR_SUCCESS ==
 				    lim_tspec_find_by_assoc_id(mac_ctx,
 					sta_ds->assocId,
 					&sta_ds->qos.addts.tspec,
@@ -1874,14 +1890,14 @@ end:
 	return;
 }
 
-void lim_process_sta_mlm_del_sta_rsp(struct mac_context *mac,
-				     struct scheduler_msg *limMsgQ,
-				     struct pe_session *pe_session)
+void lim_process_sta_mlm_del_sta_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ,
+				     tpPESession psessionEntry)
 {
-	tSirResultCodes status_code = eSIR_SME_SUCCESS;
+	tSirResultCodes statusCode = eSIR_SME_SUCCESS;
 	tpDeleteStaParams pDelStaParams = (tpDeleteStaParams) limMsgQ->bodyptr;
+	tpDphHashNode pStaDs = NULL;
 
-	if (!pDelStaParams) {
+	if (NULL == pDelStaParams) {
 		pe_err("Encountered NULL Pointer");
 		goto end;
 	}
@@ -1891,7 +1907,7 @@ void lim_process_sta_mlm_del_sta_rsp(struct mac_context *mac,
 #ifdef FEATURE_WLAN_TDLS
 	if (pDelStaParams->staType == STA_ENTRY_TDLS_PEER) {
 		pe_debug("TDLS Del STA RSP received");
-		lim_process_tdls_del_sta_rsp(mac, limMsgQ, pe_session);
+		lim_process_tdls_del_sta_rsp(pMac, limMsgQ, psessionEntry);
 		return;
 	}
 #endif
@@ -1899,12 +1915,22 @@ void lim_process_sta_mlm_del_sta_rsp(struct mac_context *mac,
 		pe_err("Del STA failed! Status:%d, proceeding with Del BSS",
 			pDelStaParams->status);
 
-	if (eLIM_MLM_WT_DEL_STA_RSP_STATE != pe_session->limMlmState) {
-		pe_err("Received unexpected WDA_DELETE_STA_RSP in state %s",
-			lim_mlm_state_str(pe_session->limMlmState));
-		status_code = eSIR_SME_REFUSED;
+	pStaDs = dph_get_hash_entry(pMac, DPH_STA_HASH_INDEX_PEER,
+			&psessionEntry->dph.dphHashTable);
+	if (pStaDs == NULL) {
+		pe_err("DPH Entry for STA %X missing",
+				pDelStaParams->assocId);
+		statusCode = eSIR_SME_REFUSED;
 		goto end;
 	}
+	if (eLIM_MLM_WT_DEL_STA_RSP_STATE != psessionEntry->limMlmState) {
+		pe_err("Received unexpected WDA_DELETE_STA_RSP in state %s",
+			lim_mlm_state_str(psessionEntry->limMlmState));
+		statusCode = eSIR_SME_REFUSED;
+		goto end;
+	}
+	pe_debug("STA AssocID %d MAC", pStaDs->assocId);
+	lim_print_mac_addr(pMac, pStaDs->staAddr, LOGD);
 	/*
 	 * we must complete all cleanup related to delSta before
 	 * calling limDelBSS.
@@ -1913,9 +1939,9 @@ void lim_process_sta_mlm_del_sta_rsp(struct mac_context *mac,
 		qdf_mem_free(pDelStaParams);
 		limMsgQ->bodyptr = NULL;
 	}
-
-	lim_disconnect_complete(pe_session, true);
-
+	/* Proceed to do DelBSS even if DelSta resulted in failure */
+	statusCode = (tSirResultCodes)lim_del_bss(pMac, pStaDs, 0,
+			psessionEntry);
 	return;
 end:
 	if (0 != limMsgQ->bodyptr) {
@@ -1925,58 +1951,57 @@ end:
 	return;
 }
 
-void lim_process_ap_mlm_add_sta_rsp(struct mac_context *mac,
-				    struct scheduler_msg *limMsgQ,
-				    struct pe_session *pe_session)
+void lim_process_ap_mlm_add_sta_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ,
+					   tpPESession psessionEntry)
 {
 	tpAddStaParams pAddStaParams = (tpAddStaParams) limMsgQ->bodyptr;
-	tpDphHashNode sta = NULL;
+	tpDphHashNode pStaDs = NULL;
 
-	if (!pAddStaParams) {
+	if (NULL == pAddStaParams) {
 		pe_err("Invalid body pointer in message");
 		goto end;
 	}
 
-	sta =
-		dph_get_hash_entry(mac, pAddStaParams->assocId,
-				   &pe_session->dph.dphHashTable);
-	if (!sta) {
+	pStaDs =
+		dph_get_hash_entry(pMac, pAddStaParams->assocId,
+				   &psessionEntry->dph.dphHashTable);
+	if (pStaDs == NULL) {
 		pe_err("DPH Entry for STA %X missing", pAddStaParams->assocId);
 		goto end;
 	}
 
-	if (eLIM_MLM_WT_ADD_STA_RSP_STATE != sta->mlmStaContext.mlmState) {
+	if (eLIM_MLM_WT_ADD_STA_RSP_STATE != pStaDs->mlmStaContext.mlmState) {
 		pe_err("Received unexpected WMA_ADD_STA_RSP in state %X",
-			sta->mlmStaContext.mlmState);
+			pStaDs->mlmStaContext.mlmState);
 		goto end;
 	}
 	if (QDF_STATUS_SUCCESS != pAddStaParams->status) {
 		pe_err("Error! rcvd delSta rsp from HAL with status %d",
 			       pAddStaParams->status);
-		lim_reject_association(mac, sta->staAddr,
-				       sta->mlmStaContext.subType,
-				       true, sta->mlmStaContext.authType,
-				       sta->assocId, true,
+		lim_reject_association(pMac, pStaDs->staAddr,
+				       pStaDs->mlmStaContext.subType,
+				       true, pStaDs->mlmStaContext.authType,
+				       pStaDs->assocId, true,
 				       eSIR_MAC_UNSPEC_FAILURE_STATUS,
-				       pe_session);
+				       psessionEntry);
 		goto end;
 	}
-	sta->bssId = pAddStaParams->bss_idx;
-	sta->staIndex = pAddStaParams->staIdx;
-	sta->nss = pAddStaParams->nss;
+	pStaDs->bssId = pAddStaParams->bssIdx;
+	pStaDs->staIndex = pAddStaParams->staIdx;
+	pStaDs->nss = pAddStaParams->nss;
 	/* if the AssocRsp frame is not acknowledged, then keep alive timer will take care of the state */
-	sta->valid = 1;
-	sta->mlmStaContext.mlmState = eLIM_MLM_WT_ASSOC_CNF_STATE;
+	pStaDs->valid = 1;
+	pStaDs->mlmStaContext.mlmState = eLIM_MLM_WT_ASSOC_CNF_STATE;
 	pe_debug("AddStaRsp Success.STA AssocID %d staId %d MAC",
-		sta->assocId, sta->staIndex);
-	lim_print_mac_addr(mac, sta->staAddr, LOGD);
+		pStaDs->assocId, pStaDs->staIndex);
+	lim_print_mac_addr(pMac, pStaDs->staAddr, LOGD);
 
 	/* For BTAMP-AP, the flow sequence shall be:
 	 * 1) PE sends eWNI_SME_ASSOC_IND to SME
 	 * 2) PE receives eWNI_SME_ASSOC_CNF from SME
 	 * 3) BTAMP-AP sends Re/Association Response to BTAMP-STA
 	 */
-	lim_send_mlm_assoc_ind(mac, sta, pe_session);
+	lim_send_mlm_assoc_ind(pMac, pStaDs, psessionEntry);
 	/* fall though to reclaim the original Add STA Response message */
 end:
 	if (0 != limMsgQ->bodyptr) {
@@ -2009,36 +2034,33 @@ end:
  * LIM responds with eWNI_SME_START_BSS_RSP to SME
  *
  ***ASSUMPTIONS:
- * struct scheduler_msg.body is allocated by MLME during
- * lim_process_mlm_start_req
- * struct scheduler_msg.body will now be freed by this routine
+ * tSirMsgQ.body is allocated by MLME during lim_process_mlm_start_req
+ * tSirMsgQ.body will now be freed by this routine
  *
  ***NOTE:
  *
- * @param  mac      Pointer to Global MAC structure
- * @param  struct scheduler_msg  The MsgQ header, which contains
- *  the response buffer
+ * @param  pMac      Pointer to Global MAC structure
+ * @param  tSirMsgQ  The MsgQ header, which contains the response buffer
  *
  * @return None
  */
-static void lim_process_ap_mlm_add_bss_rsp(struct mac_context *mac,
-					   struct scheduler_msg *limMsgQ)
+static void lim_process_ap_mlm_add_bss_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ)
 {
 	tLimMlmStartCnf mlmStartCnf;
-	struct pe_session *pe_session;
+	tpPESession psessionEntry;
 	uint8_t isWepEnabled = false;
 	tpAddBssParams pAddBssParams = (tpAddBssParams) limMsgQ->bodyptr;
 
-	if (!pAddBssParams) {
+	if (NULL == pAddBssParams) {
 		pe_err("Encountered NULL Pointer");
 		goto end;
 	}
 	/* TBD: free the memory before returning, do it for all places where lookup fails. */
-	pe_session = pe_find_session_by_session_id(mac,
+	psessionEntry = pe_find_session_by_session_id(pMac,
 					   pAddBssParams->sessionId);
-	if (!pe_session) {
+	if (psessionEntry == NULL) {
 		pe_err("session does not exist for given sessionId");
-		if (pAddBssParams) {
+		if (NULL != pAddBssParams) {
 			qdf_mem_free(pAddBssParams);
 			limMsgQ->bodyptr = NULL;
 		}
@@ -2049,82 +2071,79 @@ static void lim_process_ap_mlm_add_bss_rsp(struct mac_context *mac,
 	if (QDF_STATUS_SUCCESS == pAddBssParams->status) {
 		pe_debug("WMA_ADD_BSS_RSP returned with QDF_STATUS_SUCCESS");
 		if (lim_set_link_state
-			    (mac, eSIR_LINK_AP_STATE, pe_session->bssId,
-			    pe_session->self_mac_addr, NULL,
-			    NULL) != QDF_STATUS_SUCCESS)
+			    (pMac, eSIR_LINK_AP_STATE, psessionEntry->bssId,
+			    psessionEntry->selfMacAddr, NULL,
+			    NULL) != eSIR_SUCCESS)
 			goto end;
 		/* Set MLME state */
-		pe_session->limMlmState = eLIM_MLM_BSS_STARTED_STATE;
-		pe_session->chainMask = pAddBssParams->chainMask;
-		pe_session->smpsMode = pAddBssParams->smpsMode;
+		psessionEntry->limMlmState = eLIM_MLM_BSS_STARTED_STATE;
+		psessionEntry->chainMask = pAddBssParams->chainMask;
+		psessionEntry->smpsMode = pAddBssParams->smpsMode;
 		MTRACE(mac_trace
-			       (mac, TRACE_CODE_MLM_STATE, pe_session->peSessionId,
-			       pe_session->limMlmState));
+			       (pMac, TRACE_CODE_MLM_STATE, psessionEntry->peSessionId,
+			       psessionEntry->limMlmState));
 		if (eSIR_IBSS_MODE == pAddBssParams->bssType) {
 			/** IBSS is 'active' when we receive
 			 * Beacon frames from other STAs that are part of same IBSS.
 			 * Mark internal state as inactive until then.
 			 */
-			pe_session->limIbssActive = false;
-			pe_session->statypeForBss = STA_ENTRY_PEER; /* to know session created for self/peer */
-			limResetHBPktCount(pe_session);
+			psessionEntry->limIbssActive = false;
+			psessionEntry->statypeForBss = STA_ENTRY_PEER; /* to know session created for self/peer */
+			limResetHBPktCount(psessionEntry);
 		}
-		pe_session->bss_idx = (uint8_t)pAddBssParams->bss_idx;
+		psessionEntry->bssIdx = (uint8_t) pAddBssParams->bssIdx;
 
-		pe_session->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
+		psessionEntry->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
 
 		if (eSIR_INFRA_AP_MODE == pAddBssParams->bssType)
-			pe_session->limSystemRole = eLIM_AP_ROLE;
+			psessionEntry->limSystemRole = eLIM_AP_ROLE;
 		else
-			pe_session->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
-		sch_edca_profile_update(mac, pe_session);
-		lim_init_pre_auth_list(mac);
+			psessionEntry->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
+		sch_edca_profile_update(pMac, psessionEntry);
+		lim_init_pre_auth_list(pMac);
 		/* Check the SAP security configuration.If configured to
 		 * WEP then max clients supported is 16
 		 */
-		if (pe_session->privacy) {
-			if ((pe_session->gStartBssRSNIe.present)
-			    || (pe_session->gStartBssWPAIe.present))
+		if (psessionEntry->privacy) {
+			if ((psessionEntry->gStartBssRSNIe.present)
+			    || (psessionEntry->gStartBssWPAIe.present))
 				pe_debug("WPA/WPA2 SAP configuration");
 			else {
-				if (mac->mlme_cfg->sap_cfg.assoc_sta_limit >
+				if (pMac->lim.gLimAssocStaLimit >
 				    MAX_SUPPORTED_PEERS_WEP) {
 					pe_debug("WEP SAP Configuration");
-					mac->mlme_cfg->sap_cfg.assoc_sta_limit
-					= MAX_SUPPORTED_PEERS_WEP;
+					pMac->lim.gLimAssocStaLimit =
+						MAX_SUPPORTED_PEERS_WEP;
 					isWepEnabled = true;
 				}
 			}
 		}
-		lim_init_peer_idxpool(mac, pe_session);
+		lim_init_peer_idxpool(pMac, psessionEntry);
 
 		/* Start OLBC timer */
 		if (tx_timer_activate
-			    (&mac->lim.limTimers.gLimUpdateOlbcCacheTimer) !=
+			    (&pMac->lim.limTimers.gLimUpdateOlbcCacheTimer) !=
 		    TX_SUCCESS) {
 			pe_err("tx_timer_activate failed");
 		}
 
 		/* Apply previously set configuration at HW */
-		lim_apply_configuration(mac, pe_session);
+		lim_apply_configuration(pMac, psessionEntry);
 
 		/* In lim_apply_configuration gLimAssocStaLimit is assigned from cfg.
 		 * So update the value to 16 in case SoftAP is configured in WEP.
 		 */
-		if ((mac->mlme_cfg->sap_cfg.assoc_sta_limit >
-		    MAX_SUPPORTED_PEERS_WEP)
+		if ((pMac->lim.gLimAssocStaLimit > MAX_SUPPORTED_PEERS_WEP)
 		    && (isWepEnabled))
-			mac->mlme_cfg->sap_cfg.assoc_sta_limit =
-			MAX_SUPPORTED_PEERS_WEP;
-		pe_session->staId = pAddBssParams->staContext.staIdx;
+			pMac->lim.gLimAssocStaLimit = MAX_SUPPORTED_PEERS_WEP;
+		psessionEntry->staId = pAddBssParams->staContext.staIdx;
 		mlmStartCnf.resultCode = eSIR_SME_SUCCESS;
 	} else {
 		pe_err("WMA_ADD_BSS_REQ failed with status %d",
 			pAddBssParams->status);
 		mlmStartCnf.resultCode = eSIR_SME_HAL_SEND_MESSAGE_FAIL;
 	}
-
-	lim_send_start_bss_confirm(mac, &mlmStartCnf);
+	lim_post_sme_message(pMac, LIM_MLM_START_CNF, (uint32_t *) &mlmStartCnf);
 end:
 	if (0 != limMsgQ->bodyptr) {
 		qdf_mem_free(pAddBssParams);
@@ -2155,27 +2174,24 @@ end:
  * LIM responds with eWNI_SME_START_BSS_RSP to SME
  *
  ***ASSUMPTIONS:
- * struct scheduler_msg.body is allocated by MLME during
- * lim_process_mlm_start_req
- * struct scheduler_msg.body will now be freed by this routine
+ * tSirMsgQ.body is allocated by MLME during lim_process_mlm_start_req
+ * tSirMsgQ.body will now be freed by this routine
  *
  ***NOTE:
  *
- * @param  mac      Pointer to Global MAC structure
- * @param  struct scheduler_msg  The MsgQ header, which contains
- *  the response buffer
+ * @param  pMac      Pointer to Global MAC structure
+ * @param  tSirMsgQ  The MsgQ header, which contains the response buffer
  *
  * @return None
  */
 static void
-lim_process_ibss_mlm_add_bss_rsp(struct mac_context *mac,
-				 struct scheduler_msg *limMsgQ,
-				 struct pe_session *pe_session)
+lim_process_ibss_mlm_add_bss_rsp(tpAniSirGlobal pMac, tpSirMsgQ limMsgQ,
+				 tpPESession psessionEntry)
 {
 	tLimMlmStartCnf mlmStartCnf;
 	tpAddBssParams pAddBssParams = (tpAddBssParams) limMsgQ->bodyptr;
 
-	if (!pAddBssParams) {
+	if (NULL == pAddBssParams) {
 		pe_err("Invalid body pointer in message");
 		goto end;
 	}
@@ -2183,36 +2199,36 @@ lim_process_ibss_mlm_add_bss_rsp(struct mac_context *mac,
 		pe_debug("WMA_ADD_BSS_RSP returned with QDF_STATUS_SUCCESS");
 
 		if (lim_set_link_state
-			    (mac, eSIR_LINK_IBSS_STATE, pe_session->bssId,
-			    pe_session->self_mac_addr, NULL,
-			    NULL) != QDF_STATUS_SUCCESS)
+			    (pMac, eSIR_LINK_IBSS_STATE, psessionEntry->bssId,
+			    psessionEntry->selfMacAddr, NULL,
+			    NULL) != eSIR_SUCCESS)
 			goto end;
 		/* Set MLME state */
-		pe_session->limMlmState = eLIM_MLM_BSS_STARTED_STATE;
+		psessionEntry->limMlmState = eLIM_MLM_BSS_STARTED_STATE;
 		MTRACE(mac_trace
-			       (mac, TRACE_CODE_MLM_STATE, pe_session->peSessionId,
-			       pe_session->limMlmState));
+			       (pMac, TRACE_CODE_MLM_STATE, psessionEntry->peSessionId,
+			       psessionEntry->limMlmState));
 		/** IBSS is 'active' when we receive
 		 * Beacon frames from other STAs that are part of same IBSS.
 		 * Mark internal state as inactive until then.
 		 */
-		pe_session->limIbssActive = false;
-		limResetHBPktCount(pe_session);
-		pe_session->bss_idx = (uint8_t)pAddBssParams->bss_idx;
-		pe_session->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
-		pe_session->statypeForBss = STA_ENTRY_SELF;
-		sch_edca_profile_update(mac, pe_session);
-		if (0 == pe_session->freePeerIdxHead)
-			lim_init_peer_idxpool(mac, pe_session);
+		psessionEntry->limIbssActive = false;
+		limResetHBPktCount(psessionEntry);
+		psessionEntry->bssIdx = (uint8_t) pAddBssParams->bssIdx;
+		psessionEntry->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
+		psessionEntry->statypeForBss = STA_ENTRY_SELF;
+		sch_edca_profile_update(pMac, psessionEntry);
+		if (0 == psessionEntry->freePeerIdxHead)
+			lim_init_peer_idxpool(pMac, psessionEntry);
 
 		/* Apply previously set configuration at HW */
-		lim_apply_configuration(mac, pe_session);
-		pe_session->staId = pAddBssParams->staContext.staIdx;
+		lim_apply_configuration(pMac, psessionEntry);
+		psessionEntry->staId = pAddBssParams->staContext.staIdx;
 		mlmStartCnf.resultCode = eSIR_SME_SUCCESS;
 		/* If ADD BSS was issued as part of IBSS coalescing, don't send the message to SME, as that is internal to LIM */
-		if (true == mac->lim.gLimIbssCoalescingHappened) {
-			lim_ibss_add_bss_rsp_when_coalescing(mac, limMsgQ->bodyptr,
-							     pe_session);
+		if (true == pMac->lim.gLimIbssCoalescingHappened) {
+			lim_ibss_add_bss_rsp_when_coalescing(pMac, limMsgQ->bodyptr,
+							     psessionEntry);
 			goto end;
 		}
 	} else {
@@ -2223,8 +2239,8 @@ lim_process_ibss_mlm_add_bss_rsp(struct mac_context *mac,
 	/* Send this message to SME, when ADD_BSS is initiated by SME */
 	/* If ADD_BSS is done as part of coalescing, this won't happen. */
 	/* Update PE session Id */
-	mlmStartCnf.sessionId = pe_session->peSessionId;
-	lim_send_start_bss_confirm(mac, &mlmStartCnf);
+	mlmStartCnf.sessionId = psessionEntry->peSessionId;
+	lim_post_sme_message(pMac, LIM_MLM_START_CNF, (uint32_t *) &mlmStartCnf);
 end:
 	if (0 != limMsgQ->bodyptr) {
 		qdf_mem_free(pAddBssParams);
@@ -2240,7 +2256,7 @@ end:
  *
  * Return: None
  */
-static void lim_update_fils_auth_mode(struct pe_session *session_entry,
+static void lim_update_fils_auth_mode(tpPESession session_entry,
 			tAniAuthType *auth_mode)
 {
 	if (!session_entry->fils_info)
@@ -2250,7 +2266,7 @@ static void lim_update_fils_auth_mode(struct pe_session *session_entry,
 		*auth_mode = session_entry->fils_info->auth;
 }
 #else
-static void lim_update_fils_auth_mode(struct pe_session *session_entry,
+static void lim_update_fils_auth_mode(tpPESession session_entry,
 			tAniAuthType *auth_mode)
 { }
 #endif
@@ -2267,38 +2283,40 @@ static void lim_update_fils_auth_mode(struct pe_session *session_entry,
  * Return: Null
  */
 static void
-lim_process_sta_add_bss_rsp_pre_assoc(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg, struct pe_session *session_entry)
+lim_process_sta_add_bss_rsp_pre_assoc(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg, tpPESession session_entry)
 {
 	tpAddBssParams pAddBssParams = (tpAddBssParams) msg->bodyptr;
 	tAniAuthType cfgAuthType, authMode;
 	tLimMlmAuthReq *pMlmAuthReq;
-	tpDphHashNode sta = NULL;
+	tpDphHashNode pStaDs = NULL;
 
-	if (!pAddBssParams) {
+	if (NULL == pAddBssParams) {
 		pe_err("Invalid body pointer in message");
 		goto joinFailure;
 	}
 	if (QDF_STATUS_SUCCESS == pAddBssParams->status) {
-		sta = dph_add_hash_entry(mac_ctx,
+		pStaDs = dph_add_hash_entry(mac_ctx,
 				pAddBssParams->staContext.staMac,
 				DPH_STA_HASH_INDEX_PEER,
 				&session_entry->dph.dphHashTable);
-		if (!sta) {
+		if (pStaDs == NULL) {
 			/* Could not add hash table entry */
 			pe_err("could not add hash entry at DPH for");
 			lim_print_mac_addr(mac_ctx,
 				pAddBssParams->staContext.staMac, LOGE);
 			goto joinFailure;
 		}
-		session_entry->bss_idx = (uint8_t)pAddBssParams->bss_idx;
+		session_entry->bssIdx = (uint8_t) pAddBssParams->bssIdx;
 		/* Success, handle below */
-		sta->bssId = pAddBssParams->bss_idx;
+		pStaDs->bssId = pAddBssParams->bssIdx;
 		/* STA Index(genr by HAL) for the BSS entry is stored here */
-		sta->staIndex = pAddBssParams->staContext.staIdx;
+		pStaDs->staIndex = pAddBssParams->staContext.staIdx;
 		/* Trigger Authentication with AP */
-		cfgAuthType = mac_ctx->mlme_cfg->wep_params.auth_type;
-
+		if (wlan_cfg_get_int(mac_ctx, WNI_CFG_AUTHENTICATION_TYPE,
+			(uint32_t *) &cfgAuthType) != eSIR_SUCCESS) {
+			pe_warn("could not retrieve AuthType");
+		}
 		/* Try shared Authentication first */
 		if (cfgAuthType == eSIR_AUTO_SWITCH)
 			authMode = eSIR_SHARED_KEY;
@@ -2308,7 +2326,7 @@ lim_process_sta_add_bss_rsp_pre_assoc(struct mac_context *mac_ctx,
 		lim_update_fils_auth_mode(session_entry, &authMode);
 		/* Trigger MAC based Authentication */
 		pMlmAuthReq = qdf_mem_malloc(sizeof(tLimMlmAuthReq));
-		if (!pMlmAuthReq) {
+		if (NULL == pMlmAuthReq) {
 			pe_err("Allocate Memory failed for mlmAuthReq");
 			return;
 		}
@@ -2316,6 +2334,12 @@ lim_process_sta_add_bss_rsp_pre_assoc(struct mac_context *mac_ctx,
 			session_entry->bssId);
 
 		pMlmAuthReq->authType = authMode;
+		if (wlan_cfg_get_int(mac_ctx,
+			WNI_CFG_AUTHENTICATE_FAILURE_TIMEOUT,
+			(uint32_t *) &pMlmAuthReq->authFailureTimeout)
+			!= eSIR_SUCCESS) {
+			pe_warn("Fail: retrieve AuthFailureTimeout value");
+		}
 		session_entry->limMlmState = eLIM_MLM_JOINED_STATE;
 		MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE,
 			session_entry->peSessionId, eLIM_MLM_JOINED_STATE));
@@ -2364,15 +2388,14 @@ joinFailure:
  * HAL responded with WMA_ADD_BSS_RSP to MLME
  * MLME now sends WMA_ADD_STA_REQ to HAL
  * ASSUMPTIONS:
- * struct scheduler_msg.body is allocated by MLME during
- * lim_process_mlm_join_req
- * struct scheduler_msg.body will now be freed by this routine
+ * tSirMsgQ.body is allocated by MLME during lim_process_mlm_join_req
+ * tSirMsgQ.body will now be freed by this routine
  *
  * Return: None
  */
 static void
-lim_process_sta_mlm_add_bss_rsp(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg, struct pe_session *session_entry)
+lim_process_sta_mlm_add_bss_rsp(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg, tpPESession session_entry)
 {
 	tpAddBssParams add_bss_params = (tpAddBssParams) msg->bodyptr;
 	tLimMlmAssocCnf mlm_assoc_cnf;
@@ -2415,6 +2438,11 @@ lim_process_sta_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 
 	if (add_bss_params == 0)
 		goto end;
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+	if (session_entry->bRoamSynchInProgress)
+		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			"LFR3:lim_process_sta_mlm_add_bss_rsp");
+#endif
 
 	if (QDF_STATUS_SUCCESS == add_bss_params->status) {
 		if (eLIM_MLM_WT_ADD_BSS_RSP_FT_REASSOC_STATE ==
@@ -2439,31 +2467,35 @@ lim_process_sta_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 		sta_ds =
 			dph_get_hash_entry(mac_ctx, DPH_STA_HASH_INDEX_PEER,
 				&session_entry->dph.dphHashTable);
-		if (!sta_ds) {
+		if (sta_ds == NULL) {
 			pe_err("Session:%d Fail to add Self Entry for STA",
 				session_entry->peSessionId);
 			mlm_assoc_cnf.resultCode =
 				(tSirResultCodes) eSIR_SME_REFUSED;
 		} else {
-			session_entry->bss_idx =
-				(uint8_t)add_bss_params->bss_idx;
+			session_entry->bssIdx =
+				(uint8_t) add_bss_params->bssIdx;
 			/* Success, handle below */
-			sta_ds->bssId = add_bss_params->bss_idx;
+			sta_ds->bssId = add_bss_params->bssIdx;
 			/*
 			 * STA Index(genr by HAL) for the BSS
 			 * entry is stored here
 			*/
 			sta_ds->staIndex = add_bss_params->staContext.staIdx;
+			sta_ds->ucUcastSig =
+				add_bss_params->staContext.ucUcastSig;
+			sta_ds->ucBcastSig =
+				add_bss_params->staContext.ucBcastSig;
 			/* Downgrade the EDCA parameters if needed */
 			lim_set_active_edca_params(mac_ctx,
 				session_entry->gLimEdcaParams, session_entry);
 			lim_send_edca_params(mac_ctx,
 				session_entry->gLimEdcaParamsActive,
-				sta_ds->bssId, false);
+				sta_ds->bssId);
 			rrm_cache_mgmt_tx_power(mac_ctx,
 				add_bss_params->txMgmtPower, session_entry);
 			if (lim_add_sta_self(mac_ctx, sta_idx, update_sta,
-				session_entry) != QDF_STATUS_SUCCESS) {
+				session_entry) != eSIR_SUCCESS) {
 				/* Add STA context at HW */
 				pe_err("Session:%d could not Add Self"
 					"Entry for the station",
@@ -2491,8 +2523,8 @@ lim_process_sta_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 		session_entry->limMlmState = eLIM_MLM_IDLE_STATE;
 		if (lim_set_link_state(mac_ctx, eSIR_LINK_IDLE_STATE,
 					session_entry->bssId,
-					session_entry->self_mac_addr,
-					NULL, NULL) != QDF_STATUS_SUCCESS)
+					session_entry->selfMacAddr,
+					NULL, NULL) != eSIR_SUCCESS)
 			pe_err("Failed to set the LinkState");
 		/* Update PE session Id */
 		mlm_assoc_cnf.sessionId = session_entry->peSessionId;
@@ -2527,15 +2559,15 @@ end:
  *
  * Return None
  */
-void lim_process_mlm_add_bss_rsp(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg)
+void lim_process_mlm_add_bss_rsp(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg)
 {
 	tLimMlmStartCnf mlm_start_cnf;
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 	tpAddBssParams add_bss_param = (tpAddBssParams) (msg->bodyptr);
-	enum bss_type bss_type;
+	tSirBssType bss_type;
 
-	if (!add_bss_param) {
+	if (NULL == add_bss_param) {
 		pe_err("Encountered NULL Pointer");
 		return;
 	}
@@ -2551,10 +2583,10 @@ void lim_process_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 	/* Validate SME/LIM/MLME state */
 	session_entry = pe_find_session_by_session_id(mac_ctx,
 			add_bss_param->sessionId);
-	if (!session_entry) {
+	if (session_entry == NULL) {
 		pe_err("SessionId:%d Session Doesn't exist",
 			add_bss_param->sessionId);
-		if (add_bss_param) {
+		if (NULL != add_bss_param) {
 			qdf_mem_free(add_bss_param);
 			msg->bodyptr = NULL;
 		}
@@ -2582,8 +2614,8 @@ void lim_process_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 					qdf_mem_free(add_bss_param);
 					msg->bodyptr = NULL;
 				}
-
-				lim_send_start_bss_confirm(mac_ctx, &mlm_start_cnf);
+				lim_post_sme_message(mac_ctx, LIM_MLM_START_CNF,
+					(uint32_t *) &mlm_start_cnf);
 			} else
 				lim_process_ap_mlm_add_bss_rsp(mac_ctx, msg);
 		} else {
@@ -2595,7 +2627,7 @@ void lim_process_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 
 #ifdef WLAN_FEATURE_11W
 	if (session_entry->limRmfEnabled) {
-		if (QDF_STATUS_SUCCESS !=
+		if (eSIR_SUCCESS !=
 			lim_send_exclude_unencrypt_ind(mac_ctx, false,
 				session_entry)) {
 			pe_err("Failed to send Exclude Unencrypted Ind");
@@ -2604,17 +2636,15 @@ void lim_process_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 #endif
 }
 
-void lim_process_mlm_update_hidden_ssid_rsp(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg)
+void lim_process_mlm_update_hidden_ssid_rsp(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg)
 {
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 	tpHalHiddenSsidVdevRestart hidden_ssid_vdev_restart;
-	struct scheduler_msg message = {0};
-	QDF_STATUS status;
 
 	hidden_ssid_vdev_restart = (tpHalHiddenSsidVdevRestart)(msg->bodyptr);
 
-	if (!hidden_ssid_vdev_restart) {
+	if (NULL == hidden_ssid_vdev_restart) {
 		pe_err("NULL msg pointer");
 		return;
 	}
@@ -2622,26 +2652,17 @@ void lim_process_mlm_update_hidden_ssid_rsp(struct mac_context *mac_ctx,
 	session_entry = pe_find_session_by_session_id(mac_ctx,
 			hidden_ssid_vdev_restart->pe_session_id);
 
-	if (!session_entry) {
+	if (session_entry == NULL) {
 		pe_err("SessionId:%d Session Doesn't exist",
 			hidden_ssid_vdev_restart->pe_session_id);
 		goto free_req;
 	}
 	/* Update beacon */
 	sch_set_fixed_beacon_fields(mac_ctx, session_entry);
-	lim_send_beacon(mac_ctx, session_entry);
-
-	message.type = eWNI_SME_HIDDEN_SSID_RESTART_RSP;
-	message.bodyval = hidden_ssid_vdev_restart->sessionId;
-	status = scheduler_post_message(QDF_MODULE_ID_PE,
-					QDF_MODULE_ID_SME,
-					QDF_MODULE_ID_SME, &message);
-
-	if (status != QDF_STATUS_SUCCESS)
-		pe_err("Failed to post message %u", status);
+	lim_send_beacon_ind(mac_ctx, session_entry, REASON_CONFIG_UPDATE);
 
 free_req:
-	if (hidden_ssid_vdev_restart) {
+	if (NULL != hidden_ssid_vdev_restart) {
 		qdf_mem_free(hidden_ssid_vdev_restart);
 		msg->bodyptr = NULL;
 	}
@@ -2677,57 +2698,47 @@ free_req:
  *
  * Return: None
  */
-void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg)
+void lim_process_mlm_set_sta_key_rsp(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg)
 {
 	uint8_t resp_reqd = 1;
 	struct sLimMlmSetKeysCnf mlm_set_key_cnf;
 	uint8_t session_id = 0;
 	uint8_t sme_session_id;
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 	uint16_t key_len;
 	uint16_t result_status;
-	tSetStaKeyParams *set_key_params;
 
 	SET_LIM_PROCESS_DEFD_MESGS(mac_ctx, true);
-	qdf_mem_zero((void *)&mlm_set_key_cnf, sizeof(tLimMlmSetKeysCnf));
-	if (!msg->bodyptr) {
+	qdf_mem_set((void *)&mlm_set_key_cnf, sizeof(tLimMlmSetKeysCnf), 0);
+	if (NULL == msg->bodyptr) {
 		pe_err("msg bodyptr is NULL");
 		return;
 	}
-	set_key_params = msg->bodyptr;
-	sme_session_id = set_key_params->smesessionId;
-	session_entry = pe_find_session_by_sme_session_id(mac_ctx,
-							  sme_session_id);
-	if (!session_entry) {
+	session_id = ((tpSetStaKeyParams) msg->bodyptr)->sessionId;
+	sme_session_id = ((tpSetBssKeyParams) msg->bodyptr)->smesessionId;
+	session_entry = pe_find_session_by_session_id(mac_ctx, session_id);
+	if (session_entry == NULL) {
 		pe_err("session does not exist for given session_id");
-		qdf_mem_zero(msg->bodyptr, sizeof(*set_key_params));
 		qdf_mem_free(msg->bodyptr);
 		msg->bodyptr = NULL;
 		lim_send_sme_set_context_rsp(mac_ctx,
 					     mlm_set_key_cnf.peer_macaddr,
 					     0, eSIR_SME_INVALID_SESSION, NULL,
-					     sme_session_id);
+					     sme_session_id, 0);
 		return;
 	}
-	session_id = session_entry->peSessionId;
-	pe_debug("PE session ID %d, SME session id %d", session_id,
-		 sme_session_id);
-	result_status = set_key_params->status;
-	if (!lim_is_set_key_req_converged()) {
-		if (eLIM_MLM_WT_SET_STA_KEY_STATE !=
-				session_entry->limMlmState) {
-			pe_err("Received unexpected [Mesg Id - %d] in state %X",
-			       msg->type, session_entry->limMlmState);
-			resp_reqd = 0;
-		} else {
-			mlm_set_key_cnf.resultCode = result_status;
-		}
-		/* Restore MLME state */
-		session_entry->limMlmState = session_entry->limPrevMlmState;
+	if (eLIM_MLM_WT_SET_STA_KEY_STATE != session_entry->limMlmState) {
+		pe_err("Received unexpected [Mesg Id - %d] in state %X",
+			msg->type, session_entry->limMlmState);
+		resp_reqd = 0;
+	} else {
+		mlm_set_key_cnf.resultCode =
+			(uint16_t)(((tpSetStaKeyParams) msg->bodyptr)->status);
 	}
 
-	key_len = set_key_params->key[0].keyLength;
+	result_status = (uint16_t)(((tpSetStaKeyParams) msg->bodyptr)->status);
+	key_len = ((tpSetStaKeyParams)msg->bodyptr)->key[0].keyLength;
 
 	if (result_status == eSIR_SME_SUCCESS && key_len)
 		mlm_set_key_cnf.key_len_nonzero = true;
@@ -2735,35 +2746,30 @@ void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
 		mlm_set_key_cnf.key_len_nonzero = false;
 
 
+	qdf_mem_free(msg->bodyptr);
+	msg->bodyptr = NULL;
+	/* Restore MLME state */
+	session_entry->limMlmState = session_entry->limPrevMlmState;
 	MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE,
 		session_entry->peSessionId, session_entry->limMlmState));
 	if (resp_reqd) {
 		tpLimMlmSetKeysReq lpLimMlmSetKeysReq =
 			(tpLimMlmSetKeysReq) mac_ctx->lim.gpLimMlmSetKeysReq;
 		/* Prepare and Send LIM_MLM_SETKEYS_CNF */
-		if (lpLimMlmSetKeysReq) {
+		if (NULL != lpLimMlmSetKeysReq) {
 			qdf_copy_macaddr(&mlm_set_key_cnf.peer_macaddr,
 					 &lpLimMlmSetKeysReq->peer_macaddr);
 			/*
 			 * Free the buffer cached for the global
 			 * mac_ctx->lim.gpLimMlmSetKeysReq
 			 */
-			qdf_mem_zero(mac_ctx->lim.gpLimMlmSetKeysReq,
-				     sizeof(tpLimMlmSetKeysReq));
 			qdf_mem_free(mac_ctx->lim.gpLimMlmSetKeysReq);
 			mac_ctx->lim.gpLimMlmSetKeysReq = NULL;
-		} else {
-			lim_copy_set_key_req_mac_addr(
-					&mlm_set_key_cnf.peer_macaddr,
-					&set_key_params->macaddr);
 		}
 		mlm_set_key_cnf.sessionId = session_id;
 		lim_post_sme_message(mac_ctx, LIM_MLM_SETKEYS_CNF,
 			(uint32_t *) &mlm_set_key_cnf);
 	}
-	qdf_mem_zero(msg->bodyptr, sizeof(*set_key_params));
-	qdf_mem_free(msg->bodyptr);
-	msg->bodyptr = NULL;
 }
 
 /**
@@ -2777,45 +2783,37 @@ void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
  *
  * Return: NULL
  */
-void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
-	struct scheduler_msg *msg)
+void lim_process_mlm_set_bss_key_rsp(tpAniSirGlobal mac_ctx,
+	tpSirMsgQ msg)
 {
 	struct sLimMlmSetKeysCnf set_key_cnf;
 	uint16_t result_status;
 	uint8_t session_id = 0;
 	uint8_t sme_session_id;
-	struct pe_session *session_entry;
+	tpPESession session_entry;
 	tpLimMlmSetKeysReq set_key_req;
 	uint16_t key_len;
 
 	SET_LIM_PROCESS_DEFD_MESGS(mac_ctx, true);
-	qdf_mem_zero((void *)&set_key_cnf, sizeof(tLimMlmSetKeysCnf));
-	if (!msg->bodyptr) {
+	qdf_mem_set((void *)&set_key_cnf, sizeof(tLimMlmSetKeysCnf), 0);
+	if (NULL == msg->bodyptr) {
 		pe_err("msg bodyptr is null");
 		return;
 	}
+	session_id = ((tpSetBssKeyParams) msg->bodyptr)->sessionId;
 	sme_session_id = ((tpSetBssKeyParams) msg->bodyptr)->smesessionId;
-	session_entry = pe_find_session_by_sme_session_id(mac_ctx,
-							  sme_session_id);
-	if (!session_entry) {
+	session_entry = pe_find_session_by_session_id(mac_ctx, session_id);
+	if (session_entry == NULL) {
 		pe_err("session does not exist for given sessionId [%d]",
 			session_id);
-		qdf_mem_zero(msg->bodyptr, sizeof(tSetBssKeyParams));
 		qdf_mem_free(msg->bodyptr);
 		msg->bodyptr = NULL;
 		lim_send_sme_set_context_rsp(mac_ctx, set_key_cnf.peer_macaddr,
 					     0, eSIR_SME_INVALID_SESSION, NULL,
-					     sme_session_id);
+					     sme_session_id, 0);
 		return;
 	}
-	session_id = session_entry->peSessionId;
-	pe_debug("PE session ID %d, SME session id %d", session_id,
-		 sme_session_id);
 	if (eLIM_MLM_WT_SET_BSS_KEY_STATE == session_entry->limMlmState) {
-		result_status =
-			(uint16_t)(((tpSetBssKeyParams)msg->bodyptr)->status);
-		key_len = ((tpSetBssKeyParams)msg->bodyptr)->key[0].keyLength;
-	} else if (lim_is_set_key_req_converged()) {
 		result_status =
 			(uint16_t)(((tpSetBssKeyParams)msg->bodyptr)->status);
 		key_len = ((tpSetBssKeyParams)msg->bodyptr)->key[0].keyLength;
@@ -2829,26 +2827,25 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
 		key_len = ((tpSetStaKeyParams)msg->bodyptr)->key[0].keyLength;
 	}
 
-	pe_debug("limMlmState %d status %d key_len %d",
-		 session_entry->limMlmState, result_status, key_len);
-
 	if (result_status == eSIR_SME_SUCCESS && key_len)
 		set_key_cnf.key_len_nonzero = true;
 	else
 		set_key_cnf.key_len_nonzero = false;
 
-	if (!lim_is_set_key_req_converged()) {
-		if (eLIM_MLM_WT_SET_BSS_KEY_STATE !=
-				session_entry->limMlmState &&
-				eLIM_MLM_WT_SET_STA_BCASTKEY_STATE !=
-				session_entry->limMlmState) {
-			pe_err("Received unexpected [Mesg Id - %d] in state %X",
-			       msg->type, session_entry->limMlmState);
-		} else {
-			set_key_cnf.resultCode = result_status;
-		}
-		session_entry->limMlmState = session_entry->limPrevMlmState;
+	/* Validate MLME state */
+	if (eLIM_MLM_WT_SET_BSS_KEY_STATE != session_entry->limMlmState &&
+		eLIM_MLM_WT_SET_STA_BCASTKEY_STATE !=
+			session_entry->limMlmState) {
+		pe_err("Received unexpected [Mesg Id - %d] in state %X",
+			msg->type, session_entry->limMlmState);
+	} else {
+		set_key_cnf.resultCode = result_status;
 	}
+
+	qdf_mem_free(msg->bodyptr);
+	msg->bodyptr = NULL;
+	/* Restore MLME state */
+	session_entry->limMlmState = session_entry->limPrevMlmState;
 
 	MTRACE(mac_trace
 		(mac_ctx, TRACE_CODE_MLM_STATE, session_entry->peSessionId,
@@ -2858,26 +2855,16 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
 	set_key_cnf.sessionId = session_id;
 
 	/* Prepare and Send LIM_MLM_SETKEYS_CNF */
-	if (set_key_req) {
+	if (NULL != set_key_req) {
 		qdf_copy_macaddr(&set_key_cnf.peer_macaddr,
 				 &set_key_req->peer_macaddr);
 		/*
 		 * Free the buffer cached for the
 		 * global mac_ctx->lim.gpLimMlmSetKeysReq
 		 */
-		qdf_mem_zero(mac_ctx->lim.gpLimMlmSetKeysReq,
-			     sizeof(*set_key_req));
 		qdf_mem_free(mac_ctx->lim.gpLimMlmSetKeysReq);
 		mac_ctx->lim.gpLimMlmSetKeysReq = NULL;
-	} else {
-		lim_copy_set_key_req_mac_addr(
-				&set_key_cnf.peer_macaddr,
-				&((tpSetBssKeyParams)msg->bodyptr)->macaddr);
 	}
-	qdf_mem_zero(msg->bodyptr, sizeof(tSetBssKeyParams));
-	qdf_mem_free(msg->bodyptr);
-	msg->bodyptr = NULL;
-
 	lim_post_sme_message(mac_ctx, LIM_MLM_SETKEYS_CNF,
 		(uint32_t *) &set_key_cnf);
 }
@@ -2897,22 +2884,22 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
  ***NOTE:
  * NA
  *
- * @param  mac          - Pointer to Global MAC structure.
- * @param  pe_session - session related information.
+ * @param  pMac          - Pointer to Global MAC structure.
+ * @param  psessionEntry - session related information.
  * @param  status        - channel switch success/failure.
  *
  * @return None
  */
-static void lim_process_switch_channel_re_assoc_req(struct mac_context *mac,
-						    struct pe_session *pe_session,
+static void lim_process_switch_channel_re_assoc_req(tpAniSirGlobal pMac,
+						    tpPESession psessionEntry,
 						    QDF_STATUS status)
 {
 	tLimMlmReassocCnf mlmReassocCnf;
 	tLimMlmReassocReq *pMlmReassocReq;
 
 	pMlmReassocReq =
-		(tLimMlmReassocReq *) (pe_session->pLimMlmReassocReq);
-	if (!pMlmReassocReq) {
+		(tLimMlmReassocReq *) (psessionEntry->pLimMlmReassocReq);
+	if (pMlmReassocReq == NULL) {
 		pe_err("pLimMlmReassocReq does not exist for given switchChanSession");
 		mlmReassocCnf.resultCode = eSIR_SME_RESOURCES_UNAVAILABLE;
 		goto end;
@@ -2925,9 +2912,9 @@ static void lim_process_switch_channel_re_assoc_req(struct mac_context *mac,
 	}
 	/* / Start reassociation failure timer */
 	MTRACE(mac_trace
-		       (mac, TRACE_CODE_TIMER_ACTIVATE, pe_session->peSessionId,
+		       (pMac, TRACE_CODE_TIMER_ACTIVATE, psessionEntry->peSessionId,
 		       eLIM_REASSOC_FAIL_TIMER));
-	if (tx_timer_activate(&mac->lim.limTimers.gLimReassocFailureTimer)
+	if (tx_timer_activate(&pMac->lim.limTimers.gLimReassocFailureTimer)
 	    != TX_SUCCESS) {
 		pe_err("could not start Reassociation failure timer");
 		/* Return Reassoc confirm with */
@@ -2936,24 +2923,24 @@ static void lim_process_switch_channel_re_assoc_req(struct mac_context *mac,
 		goto end;
 	}
 	/* / Prepare and send Reassociation request frame */
-	lim_send_reassoc_req_mgmt_frame(mac, pMlmReassocReq, pe_session);
+	lim_send_reassoc_req_mgmt_frame(pMac, pMlmReassocReq, psessionEntry);
 	return;
 end:
 	/* Free up buffer allocated for reassocReq */
-	if (pMlmReassocReq) {
+	if (pMlmReassocReq != NULL) {
 		/* Update PE session Id */
 		mlmReassocCnf.sessionId = pMlmReassocReq->sessionId;
 		qdf_mem_free(pMlmReassocReq);
-		pe_session->pLimMlmReassocReq = NULL;
+		psessionEntry->pLimMlmReassocReq = NULL;
 	} else {
 		mlmReassocCnf.sessionId = 0;
 	}
 
 	mlmReassocCnf.protStatusCode = eSIR_MAC_UNSPEC_FAILURE_STATUS;
 	/* Update PE sessio Id */
-	mlmReassocCnf.sessionId = pe_session->peSessionId;
+	mlmReassocCnf.sessionId = psessionEntry->peSessionId;
 
-	lim_post_sme_message(mac, LIM_MLM_REASSOC_CNF,
+	lim_post_sme_message(pMac, LIM_MLM_REASSOC_CNF,
 			     (uint32_t *) &mlmReassocCnf);
 }
 
@@ -2962,7 +2949,7 @@ end:
  * lim_process_switch_channel_join_req() -Initiates probe request
  *
  * @mac_ctx - A pointer to Global MAC structure
- * @pe_session - session related information.
+ * @sessionEntry - session related information.
  * @status        - channel switch success/failure
  *
  * This function is called to send the probe req mgmt frame
@@ -2971,45 +2958,38 @@ end:
  * Return None
  */
 static void lim_process_switch_channel_join_req(
-	struct mac_context *mac_ctx, struct pe_session *session_entry,
+	tpAniSirGlobal mac_ctx, tpPESession session_entry,
 	QDF_STATUS status)
 {
 	tSirMacSSid ssId;
 	tLimMlmJoinCnf join_cnf;
-	uint8_t nontx_bss_id = 0;
-	struct bss_description *bss;
 
 	if (status != QDF_STATUS_SUCCESS) {
 		pe_err("Change channel failed!!");
 		goto error;
 	}
 
-	if ((!session_entry) || (!session_entry->pLimMlmJoinReq)
-		|| (!session_entry->pLimJoinReq)) {
+	if ((NULL == session_entry) || (NULL == session_entry->pLimMlmJoinReq)
+		|| (NULL == session_entry->pLimJoinReq)) {
 		pe_err("invalid pointer!!");
 		goto error;
 	}
 
-	bss = &session_entry->pLimJoinReq->bssDescription;
-	nontx_bss_id = bss->mbssid_info.profile_num;
-
 	session_entry->limPrevMlmState = session_entry->limMlmState;
 	session_entry->limMlmState = eLIM_MLM_WT_JOIN_BEACON_STATE;
 	pe_debug("Sessionid %d prev lim state %d new lim state %d "
-		"systemrole = %d nontx_profile_num %d",
-		session_entry->peSessionId,
+		"systemrole = %d", session_entry->peSessionId,
 		session_entry->limPrevMlmState,
-		session_entry->limMlmState, GET_LIM_SYSTEM_ROLE(session_entry),
-		nontx_bss_id);
+		session_entry->limMlmState, GET_LIM_SYSTEM_ROLE(session_entry));
 
 	/* Apply previously set configuration at HW */
 	lim_apply_configuration(mac_ctx, session_entry);
 
 	/*
-	* If deauth_before_connection is enabled, Send Deauth first to AP if
-	* last disconnection was caused by HB failure.
+	* If sendDeauthBeforeCon is enabled, Send Deauth first to AP if last
+	* disconnection was caused by HB failure.
 	*/
-	if (mac_ctx->mlme_cfg->sta.deauth_before_connection) {
+	if (mac_ctx->roam.configParam.sendDeauthBeforeCon) {
 		int apCount;
 
 		for (apCount = 0; apCount < 2; apCount++) {
@@ -3018,9 +2998,9 @@ static void lim_process_switch_channel_join_req(
 				mac_ctx->lim.gLimHeartBeatApMac[apCount], sizeof(tSirMacAddr))) {
 
 				pe_err("Index %d Sessionid: %d Send deauth on "
-				"channel %d to BSSID: "QDF_MAC_ADDR_STR, apCount,
+				"channel %d to BSSID: "MAC_ADDRESS_STR, apCount,
 				session_entry->peSessionId, session_entry->currentOperChannel,
-				QDF_MAC_ADDR_ARRAY(session_entry->pLimMlmJoinReq->bssDescription.
+				MAC_ADDR_ARRAY(session_entry->pLimMlmJoinReq->bssDescription.
 											bssId));
 
 				lim_send_deauth_mgmt_frame(mac_ctx, eSIR_MAC_UNSPEC_FAILURE_REASON,
@@ -3032,21 +3012,6 @@ static void lim_process_switch_channel_join_req(
 				break;
 			}
 		}
-	}
-
-	/*
-	 * MBSSID: Non Tx BSS may or may not respond to unicast
-	 * probe request.So dont send unicast probe request
-	 * and wait for the probe response/ beacon to post JOIN CNF
-	 */
-	if (nontx_bss_id) {
-		session_entry->limMlmState = eLIM_MLM_JOINED_STATE;
-		join_cnf.sessionId = session_entry->peSessionId;
-		join_cnf.resultCode = eSIR_SME_SUCCESS;
-		join_cnf.protStatusCode = eSIR_MAC_SUCCESS_STATUS;
-		lim_post_sme_message(mac_ctx, LIM_MLM_JOIN_CNF,
-				     (uint32_t *)&join_cnf);
-		return;
 	}
 
 	/* Wait for Beacon to announce join success */
@@ -3061,9 +3026,9 @@ static void lim_process_switch_channel_join_req(
 	mac_ctx->lim.limTimers.gLimPeriodicJoinProbeReqTimer.sessionId =
 		session_entry->peSessionId;
 	pe_debug("Sessionid: %d Send Probe req on channel %d ssid:%.*s "
-		"BSSID: " QDF_MAC_ADDR_STR, session_entry->peSessionId,
+		"BSSID: " MAC_ADDRESS_STR, session_entry->peSessionId,
 		session_entry->currentOperChannel, ssId.length, ssId.ssId,
-		QDF_MAC_ADDR_ARRAY(
+		MAC_ADDR_ARRAY(
 		session_entry->pLimMlmJoinReq->bssDescription.bssId));
 
 	/*
@@ -3082,16 +3047,15 @@ static void lim_process_switch_channel_join_req(
 			 mac_ctx->lim.gLimMlmState));
 		goto error;
 	}
-
 	/* include additional IE if there is */
 	lim_send_probe_req_mgmt_frame(mac_ctx, &ssId,
 		session_entry->pLimMlmJoinReq->bssDescription.bssId,
-		session_entry->currentOperChannel, session_entry->self_mac_addr,
+		session_entry->currentOperChannel, session_entry->selfMacAddr,
 		session_entry->dot11mode,
 		&session_entry->pLimJoinReq->addIEScan.length,
 		session_entry->pLimJoinReq->addIEScan.addIEdata);
 
-	if (session_entry->opmode == QDF_P2P_CLIENT_MODE) {
+	if (session_entry->pePersona == QDF_P2P_CLIENT_MODE) {
 		/* Activate Join Periodic Probe Req timer */
 		if (tx_timer_activate
 			(&mac_ctx->lim.limTimers.gLimPeriodicJoinProbeReqTimer)
@@ -3100,10 +3064,9 @@ static void lim_process_switch_channel_join_req(
 			goto error;
 		}
 	}
-
 	return;
 error:
-	if (session_entry) {
+	if (NULL != session_entry) {
 		if (session_entry->pLimMlmJoinReq) {
 			qdf_mem_free(session_entry->pLimMlmJoinReq);
 			session_entry->pLimMlmJoinReq = NULL;
@@ -3121,24 +3084,6 @@ error:
 	lim_post_sme_message(mac_ctx, LIM_MLM_JOIN_CNF, (uint32_t *)&join_cnf);
 }
 
-static void lim_handle_mon_switch_channel_rsp(struct pe_session *session,
-					      QDF_STATUS status)
-{
-	if (session->bssType != eSIR_MONITOR_MODE)
-		return;
-
-	if (QDF_IS_STATUS_ERROR(status)) {
-		pe_err("Set channel failed for monitor mode");
-		wlan_vdev_mlme_sm_deliver_evt(session->vdev,
-					      WLAN_VDEV_SM_EV_START_REQ_FAIL,
-					      0, NULL);
-		return;
-	}
-
-	wlan_vdev_mlme_sm_deliver_evt(session->vdev,
-				      WLAN_VDEV_SM_EV_START_SUCCESS, 0, NULL);
-}
-
 /**
  * lim_process_switch_channel_rsp()
  *
@@ -3153,75 +3098,75 @@ static void lim_handle_mon_switch_channel_rsp(struct pe_session *session,
  ***NOTE:
  * NA
  *
- * @param  mac    - Pointer to Global MAC structure
+ * @param  pMac    - Pointer to Global MAC structure
  * @param  body - message body.
  *
  * @return None
  */
-void lim_process_switch_channel_rsp(struct mac_context *mac, void *body)
+void lim_process_switch_channel_rsp(tpAniSirGlobal pMac, void *body)
 {
 	tpSwitchChannelParams pChnlParams = NULL;
 	QDF_STATUS status;
 	uint16_t channelChangeReasonCode;
 	uint8_t peSessionId;
-	struct pe_session *pe_session;
+	tpPESession psessionEntry;
 	/* we need to process the deferred message since the initiating req. there might be nested request. */
 	/* in the case of nested request the new request initiated from the response will take care of resetting */
 	/* the deffered flag. */
-	SET_LIM_PROCESS_DEFD_MESGS(mac, true);
+	SET_LIM_PROCESS_DEFD_MESGS(pMac, true);
 	pChnlParams = (tpSwitchChannelParams) body;
 	status = pChnlParams->status;
 	peSessionId = pChnlParams->peSessionId;
 
-	pe_session = pe_find_session_by_session_id(mac, peSessionId);
-	if (!pe_session) {
+	psessionEntry = pe_find_session_by_session_id(pMac, peSessionId);
+	if (psessionEntry == NULL) {
 		pe_err("session does not exist for given sessionId");
 		goto free;
 	}
-	pe_session->ch_switch_in_progress = false;
+	psessionEntry->ch_switch_in_progress = false;
 	/* HAL fills in the tx power used for mgmt frames in this field. */
 	/* Store this value to use in TPC report IE. */
-	rrm_cache_mgmt_tx_power(mac, pChnlParams->txMgmtPower, pe_session);
-	channelChangeReasonCode = pe_session->channelChangeReasonCode;
+	rrm_cache_mgmt_tx_power(pMac, pChnlParams->txMgmtPower, psessionEntry);
+	channelChangeReasonCode = psessionEntry->channelChangeReasonCode;
 	/* initialize it back to invalid id */
-	pe_session->chainMask = pChnlParams->chainMask;
-	pe_session->smpsMode = pChnlParams->smpsMode;
-	pe_session->channelChangeReasonCode = 0xBAD;
+	psessionEntry->chainMask = pChnlParams->chainMask;
+	psessionEntry->smpsMode = pChnlParams->smpsMode;
+	psessionEntry->channelChangeReasonCode = 0xBAD;
 	pe_debug("channelChangeReasonCode %d", channelChangeReasonCode);
 	switch (channelChangeReasonCode) {
 	case LIM_SWITCH_CHANNEL_REASSOC:
-		lim_process_switch_channel_re_assoc_req(mac, pe_session, status);
+		lim_process_switch_channel_re_assoc_req(pMac, psessionEntry, status);
 		break;
 	case LIM_SWITCH_CHANNEL_JOIN:
-		lim_process_switch_channel_join_req(mac, pe_session, status);
+		lim_process_switch_channel_join_req(pMac, psessionEntry, status);
 		break;
 
 	case LIM_SWITCH_CHANNEL_OPERATION:
-	case LIM_SWITCH_CHANNEL_HT_WIDTH:
 		/*
 		 * The above code should also use the callback.
 		 * mechanism below, there is scope for cleanup here.
 		 * THat way all this response handler does is call the call back
 		 * We can get rid of the reason code here.
 		 */
-		if (mac->lim.gpchangeChannelCallback) {
+		if (pMac->lim.gpchangeChannelCallback) {
 			pe_debug("Channel changed hence invoke registered call back");
-			mac->lim.gpchangeChannelCallback(mac, status,
-							  mac->lim.
+
+			pMac->lim.gpchangeChannelCallback(pMac, status,
+							  pMac->lim.
 							  gpchangeChannelData,
-							  pe_session);
+							  psessionEntry);
 		}
 		/* If MCC upgrade/DBS downgrade happended during channel switch,
 		 * the policy manager connection table needs to be updated.
 		 */
-		policy_mgr_update_connection_info(mac->psoc,
-			pe_session->smeSessionId);
-		if (pe_session->opmode == QDF_P2P_CLIENT_MODE) {
+		cds_update_connection_info(psessionEntry->smeSessionId);
+		if (psessionEntry->pePersona == QDF_P2P_CLIENT_MODE) {
 			pe_debug("Send p2p operating channel change conf action frame once first beacon is received on new channel");
-			pe_session->send_p2p_conf_frame = true;
+			psessionEntry->send_p2p_conf_frame = true;
 		}
 		break;
 	case LIM_SWITCH_CHANNEL_SAP_DFS:
+	{
 		/* Note: This event code specific to SAP mode
 		 * When SAP session issues channel change as performing
 		 * DFS, we will come here. Other sessions, for e.g. P2P
@@ -3230,24 +3175,15 @@ void lim_process_switch_channel_rsp(struct mac_context *mac, void *body)
 		 * require completely different information for P2P unlike
 		 * SAP.
 		 */
-		lim_send_sme_ap_channel_switch_resp(mac, pe_session,
-						pChnlParams);
+		lim_send_sme_ap_channel_switch_resp(pMac, psessionEntry,
+						    pChnlParams);
 		/* If MCC upgrade/DBS downgrade happended during channel switch,
 		 * the policy manager connection table needs to be updated.
 		 */
-		policy_mgr_update_connection_info(mac->psoc,
-						pe_session->smeSessionId);
-		policy_mgr_set_do_hw_mode_change_flag(mac->psoc, true);
-		break;
-	case LIM_SWITCH_CHANNEL_MONITOR:
-		lim_handle_mon_switch_channel_rsp(pe_session, status);
-		/*
-		 * If MCC upgrade/DBS downgrade happended during channel switch,
-		 * the policy manager connection table needs to be updated.
-		 */
-		policy_mgr_update_connection_info(mac->psoc,
-						  pe_session->smeSessionId);
-		break;
+		cds_update_connection_info(psessionEntry->smeSessionId);
+		cds_set_do_hw_mode_change_flag(true);
+	}
+	break;
 	default:
 		break;
 	}
@@ -3255,38 +3191,160 @@ free:
 	qdf_mem_free(body);
 }
 
-QDF_STATUS lim_send_beacon_ind(struct mac_context *mac,
-			       struct pe_session *pe_session,
+QDF_STATUS lim_send_beacon_ind(tpAniSirGlobal pMac, tpPESession psessionEntry,
 			       enum sir_bcn_update_reason reason)
 {
-	struct beacon_gen_params *params;
-	struct scheduler_msg msg = {0};
-
-	if (!pe_session) {
+	tBeaconGenParams *pBeaconGenParams = NULL;
+	tSirMsgQ limMsg;
+	/** Allocate the Memory for Beacon Pre Message and for Stations in PoweSave*/
+	if (!psessionEntry) {
 		pe_err("Error:Unable to get the PESessionEntry");
 		return QDF_STATUS_E_INVAL;
 	}
-	params = qdf_mem_malloc(sizeof(*params));
-	if (!params)
+	pBeaconGenParams = qdf_mem_malloc(sizeof(*pBeaconGenParams));
+	if (!pBeaconGenParams) {
+		pe_err("Unable to allocate memory during sending beaconPreMessage");
 		return QDF_STATUS_E_NOMEM;
-	qdf_mem_copy(params->bssid, pe_session->bssId, QDF_MAC_ADDR_SIZE);
-	msg.bodyptr = params;
-
-	return sch_process_pre_beacon_ind(mac, &msg, reason);
+	}
+	qdf_mem_copy((void *)pBeaconGenParams->bssId,
+		     (void *)psessionEntry->bssId, QDF_MAC_ADDR_SIZE);
+	limMsg.bodyptr = pBeaconGenParams;
+	return sch_process_pre_beacon_ind(pMac, &limMsg, reason);
 }
 
-void lim_process_rx_channel_status_event(struct mac_context *mac_ctx, void *buf)
+#ifdef FEATURE_WLAN_SCAN_PNO
+/**
+ * lim_send_sme_scan_cache_updated_ind()
+ *
+ ***FUNCTION:
+ * This function is used to post WMA_SME_SCAN_CACHE_UPDATED message to WMA.
+ * This message is the indication to WMA that all scan cache results
+ * are updated from LIM to SME. Mainly used only in PNO offload case.
+ *
+ ***LOGIC:
+ *
+ ***ASSUMPTIONS:
+ * This function should be called after posting scan cache results to SME.
+ *
+ ***NOTE:
+ * NA
+ *
+ * @return None
+ */
+static void lim_send_sme_scan_cache_updated_ind(uint8_t sessionId)
+{
+	cds_msg_t msg;
+
+	msg.type = WMA_SME_SCAN_CACHE_UPDATED;
+	msg.reserved = 0;
+	msg.bodyptr = NULL;
+	msg.bodyval = sessionId;
+
+	if (!QDF_IS_STATUS_SUCCESS
+		    (cds_mq_post_message(QDF_MODULE_ID_WMA, &msg)))
+		QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Not able to post WMA_SME_SCAN_CACHE_UPDATED message to WMA",
+			  __func__);
+}
+#endif
+
+static void lim_send_scan_offload_complete(tpAniSirGlobal pMac,
+					   tSirScanOffloadEvent *pScanEvent)
+{
+
+	pMac->lim.gLimRspReqd = false;
+	lim_send_sme_scan_rsp(pMac, pScanEvent->reasonCode,
+			pScanEvent->sessionId, 0, pScanEvent->scanId);
+#ifdef FEATURE_WLAN_SCAN_PNO
+	lim_send_sme_scan_cache_updated_ind(pScanEvent->sessionId);
+#endif
+}
+
+void lim_process_rx_scan_event(tpAniSirGlobal pMac, void *buf)
+{
+	tSirScanOffloadEvent *pScanEvent = (tSirScanOffloadEvent *) buf;
+
+	switch (pScanEvent->event) {
+	case SIR_SCAN_EVENT_STARTED:
+		break;
+	case SIR_SCAN_EVENT_COMPLETED:
+	pe_debug("No.of beacons and probe response received per scan %d",
+		pMac->lim.beacon_probe_rsp_cnt_per_scan);
+#ifdef FEATURE_WLAN_DIAG_SUPPORT_LIM    /* FEATURE_WLAN_DIAG_SUPPORT */
+	lim_diag_event_report(pMac, WLAN_PE_DIAG_SCAN_COMPLETE_EVENT, NULL,
+			      eSIR_SUCCESS, eSIR_SUCCESS);
+	if (pMac->lim.beacon_probe_rsp_cnt_per_scan)
+		lim_diag_event_report(pMac,
+				      WLAN_PE_DIAG_SCAN_RESULT_FOUND_EVENT,
+				      NULL, eSIR_SUCCESS, eSIR_SUCCESS);
+#endif
+	/* Fall through */
+	case SIR_SCAN_EVENT_START_FAILED:
+		if (ROC_SCAN_REQUESTOR_ID == pScanEvent->requestor) {
+			lim_send_sme_roc_rsp(pMac, eWNI_SME_REMAIN_ON_CHN_RSP,
+					 eSIR_SME_SUCCESS,
+					 pScanEvent->sessionId,
+					 pScanEvent->scanId);
+			qdf_mem_free(pMac->lim.gpLimRemainOnChanReq);
+			pMac->lim.gpLimRemainOnChanReq = NULL;
+			/*
+			 * If remain on channel timer expired and action frame
+			 * is pending then indicate confirmation with status
+			 * failure.
+			 */
+			if (pMac->lim.mgmtFrameSessionId != 0xff) {
+				lim_p2p_action_cnf(pMac, false);
+				pMac->lim.mgmtFrameSessionId = 0xff;
+			}
+		} else if (PREAUTH_REQUESTOR_ID == pScanEvent->requestor) {
+			lim_preauth_scan_event_handler(pMac, pScanEvent->event,
+					 pScanEvent->sessionId,
+					 pScanEvent->scanId);
+		} else {
+			lim_send_scan_offload_complete(pMac, pScanEvent);
+		}
+		break;
+	case SIR_SCAN_EVENT_FOREIGN_CHANNEL:
+		if (ROC_SCAN_REQUESTOR_ID == pScanEvent->requestor) {
+			/*Send Ready on channel indication to SME */
+			if (pMac->lim.gpLimRemainOnChanReq) {
+				lim_send_sme_roc_rsp(pMac,
+						 eWNI_SME_REMAIN_ON_CHN_RDY_IND,
+						 eSIR_SME_SUCCESS,
+						 pScanEvent->sessionId,
+						 pScanEvent->scanId);
+			} else {
+				pe_err("gpLimRemainOnChanReq is NULL");
+			}
+		} else if (PREAUTH_REQUESTOR_ID == pScanEvent->requestor) {
+			lim_preauth_scan_event_handler(pMac, pScanEvent->event,
+					pScanEvent->sessionId,
+					pScanEvent->scanId);
+		}
+		break;
+	case SIR_SCAN_EVENT_BSS_CHANNEL:
+	case SIR_SCAN_EVENT_DEQUEUED:
+	case SIR_SCAN_EVENT_PREEMPTED:
+	default:
+		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			  "Received unhandled scan event %u",
+			  pScanEvent->event);
+	}
+	qdf_mem_free(buf);
+}
+
+void lim_process_rx_channel_status_event(tpAniSirGlobal mac_ctx, void *buf)
 {
 	struct lim_channel_status *chan_status = buf;
 
-	if (!chan_status) {
+	if (NULL == chan_status) {
 		QDF_TRACE(QDF_MODULE_ID_PE,
 			  QDF_TRACE_LEVEL_ERROR,
 			  "%s: ACS evt report buf NULL", __func__);
 		return;
 	}
 
-	if (mac_ctx->sap.acs_with_more_param)
+	if (ACS_FW_REPORT_PARAM_CONFIGURED)
 		lim_add_channel_status_info(mac_ctx, chan_status,
 					    chan_status->channel_id);
 	else
