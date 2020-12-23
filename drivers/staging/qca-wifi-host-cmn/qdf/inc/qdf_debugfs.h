@@ -70,9 +70,9 @@ QDF_STATUS qdf_debugfs_init(void);
 /**
  * qdf_debugfs_exit() - cleanup debugfs
  *
- * Return: None
+ * Return: QDF_STATUS
  */
-void qdf_debugfs_exit(void);
+QDF_STATUS qdf_debugfs_exit(void);
 
 /**
  * qdf_debugfs_create_dir() - create a debugfs directory
@@ -111,21 +111,10 @@ void qdf_debugfs_printf(qdf_debugfs_file_t file, const char *f, ...);
  * @file: debugfs file handle passed in fops->show() function.
  * @buf: data
  * @len: data length
- * @rowsize: row size in bytes to dump
- * @groupsize: group size in bytes to dump
  *
  */
 void qdf_debugfs_hexdump(qdf_debugfs_file_t file, const uint8_t *buf,
-			 qdf_size_t len, int rowsize, int groupsize);
-
-/**
- * qdf_debugfs_overflow() - check overflow occurrence in debugfs buffer
- * @file: debugfs file handle passed in fops->show() function.
- *
- * Return: 1 on overflow occurrence else 0
- *
- */
-bool qdf_debugfs_overflow(qdf_debugfs_file_t file);
+			 qdf_size_t len);
 
 /**
  * qdf_debugfs_write() - write data into debugfs file
@@ -244,10 +233,13 @@ void qdf_debugfs_remove_file(qdf_dentry_t d);
 
 static inline QDF_STATUS qdf_debugfs_init(void)
 {
-	return QDF_STATUS_SUCCESS;
+	return QDF_STATUS_E_NOSUPPORT;
 }
 
-static inline void qdf_debugfs_exit(void) { }
+static inline QDF_STATUS qdf_debugfs_exit(void)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
 
 static inline qdf_dentry_t qdf_debugfs_create_dir(const char *name,
 						  qdf_dentry_t parent)
@@ -268,14 +260,8 @@ static inline void qdf_debugfs_printf(qdf_debugfs_file_t file, const char *f,
 }
 
 static inline void qdf_debugfs_hexdump(qdf_debugfs_file_t file,
-				       const uint8_t *buf, qdf_size_t len,
-				       int rowsize, int groupsize)
+				       const uint8_t *buf, qdf_size_t len)
 {
-}
-
-static inline bool qdf_debugfs_overflow(qdf_debugfs_file_t file)
-{
-	return 0;
 }
 
 static inline void qdf_debugfs_write(qdf_debugfs_file_t file,
