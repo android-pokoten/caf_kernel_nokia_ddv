@@ -14,7 +14,7 @@ VERSION="ISHIDA"
 DATE=$(date +"%Y%m%d%H%M")
 DEVICE="DDV"
 FINAL_ZIP=$KERNEL_NAME-$VERSION-$DATE.zip
-defconfig=ayase_defconfig
+defconfig=aikou_defconfig
 
 # Dirs
 BASE_DIR=`pwd`/../
