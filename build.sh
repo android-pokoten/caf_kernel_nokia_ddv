@@ -18,7 +18,7 @@ defconfig=ayase-halium_defconfig
 
 # Dirs
 BASE_DIR=`pwd`/../
-KERNEL_DIR=$BASE_DIR/msm-4.4
+KERNEL_DIR=$BASE_DIR/caf_kernel_nokia_ddv
 ANYKERNEL_DIR=$KERNEL_DIR/AnyKernel3
 KERNEL_IMG=$KERNEL_DIR/output/arch/arm64/boot/Image.gz-dtb
 UPLOAD_DIR=$BASE_DIR/$DEVICE
@@ -26,7 +26,7 @@ UPLOAD_DIR=$BASE_DIR/$DEVICE
 WLAN_MOD=$KERNEL_DIR/output/drivers/staging/qcacld-3.0/wlan.ko
 
 # Export
-export PATH="/mnt/f/build/toolchain/aarch64/aarch64-linux-android-4.9/bin:$PATH"
+export PATH="$BASE_DIR/toolchain/aarch64/aarch64-linux-android-4.9/bin:$PATH"
 export ARCH=arm64
 export CROSS_COMPILE=aarch64-linux-android-
 export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
@@ -49,7 +49,7 @@ function make_kernel() {
   echo -e "***********************************************$nocol"
   #make -j$(nproc --all) CC=clang O=output/
   make -j$(nproc --all) O=output/
-  if ! [ -a $KERNEL_IMG ];
+  if ! [ -e $KERNEL_IMG ];
   then
     echo -e "$red Kernel Compilation failed! Fix the errors! $nocol"
     exit 1
